@@ -33,6 +33,50 @@ export function classify(fund: FundamentalData): ClassificationResult {
 
   // Uncertain: best non-disqualified score is below threshold
   if (topScore < UNCERTAIN_THRESHOLD) {
+    // STALWART rescue: applied ONLY when STALWART is itself the natural top
+    // (i.e. no other type beats it). Mega-cap profitable companies whose
+    // STALWART score landed in 0-29 (e.g. DIS) get lifted to 30/35 so the
+    // user sees "🏛️ 대형우량" instead of "분류 불확실".
+    // If another type (FAST_GROWER, ASSET_PLAY, ...) is the natural top
+    // below 30, we respect it and leave the result uncertain — that
+    // prevents the rescue from overriding cases like CRWD.
+    if (first?.type === 'STALWART') {
+      const mcap = fund.marketCap;
+      const ttmEps = fund.quarterly
+        .slice(0, 4)
+        .reduce((acc, q) => acc + (q.eps ?? 0), 0);
+      const profitable =
+        ttmEps > 0 ||
+        (fund.annual[0]?.netIncome != null && fund.annual[0].netIncome > 0);
+      let rescueScore = 0;
+      if (mcap != null && profitable) {
+        if (mcap > 200e9) rescueScore = 35;
+        else if (mcap > 50e9) rescueScore = 30;
+      }
+      if (rescueScore > first.score) {
+        const before = first.score;
+        first.score = rescueScore;
+        first.reasons.push(
+          `대형 우량 rescue: 시총 $${(mcap! / 1e9).toFixed(0)}B + 흑자, natural top < 30 → ${before}→${rescueScore}`,
+        );
+        candidates.sort((a, b) => {
+          if (a.disqualified && !b.disqualified) return 1;
+          if (!a.disqualified && b.disqualified) return -1;
+          return b.score - a.score;
+        });
+        return {
+          primary: 'STALWART',
+          primaryRatio: 100,
+          secondary: null,
+          secondaryRatio: 0,
+          confidence: rescueScore,
+          candidates,
+          display: formatLabel('STALWART'),
+          uncertain: false,
+        };
+      }
+    }
+
     const fallback = first ?? candidates[0];
     return {
       primary: fallback.type,

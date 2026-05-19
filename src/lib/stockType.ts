@@ -269,31 +269,7 @@ function scoreStalwart(fund: FundamentalData): TypeCandidateScore {
     }
   }
 
-  // Mega-cap profitability floor: a $50B+ profitable company should not
-  // fall into "분류 불확실" just because penalties stack. Forces a minimum
-  // STALWART score so the classifier has a confident label to assign.
-  let finalScore = Math.max(0, score);
-  const ttmEps = fund.quarterly
-    .slice(0, 4)
-    .reduce((acc, q) => acc + (q.eps ?? 0), 0);
-  const profitable =
-    ttmEps > 0 ||
-    (fund.annual[0]?.netIncome != null && fund.annual[0].netIncome > 0);
-  if (isNum(mcap) && profitable) {
-    if (mcap > 200e9 && finalScore < 35) {
-      reasons.push(
-        `대형 우량 floor: 시총 $${(mcap / 1e9).toFixed(0)}B + 흑자 → 최소 35 보장 (${finalScore}→35)`,
-      );
-      finalScore = 35;
-    } else if (mcap > 50e9 && finalScore < 30) {
-      reasons.push(
-        `대형 우량 floor: 시총 $${(mcap / 1e9).toFixed(0)}B + 흑자 → 최소 30 보장 (${finalScore}→30)`,
-      );
-      finalScore = 30;
-    }
-  }
-
-  return { type: 'STALWART', score: finalScore, reasons };
+  return { type: 'STALWART', score: Math.max(0, score), reasons };
 }
 
 function scoreSlowGrower(fund: FundamentalData): TypeCandidateScore {
