@@ -31,9 +31,11 @@ function formatRatio(v: number | null | undefined): string {
 
 interface Props {
   result: AnalysisResult;
+  isFavorite?: boolean;
+  onToggleFavorite?: () => void;
 }
 
-export function StockCard({ result }: Props) {
+export function StockCard({ result, isFavorite = false, onToggleFavorite }: Props) {
   const [open, setOpen] = useState(false);
   const f = result.fundamental;
   const cls = result.classification;
@@ -48,6 +50,23 @@ export function StockCard({ result }: Props) {
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">
               <h2 className="text-xl font-bold text-slate-100">{f.ticker}</h2>
+              {onToggleFavorite && (
+                <button
+                  type="button"
+                  onClick={onToggleFavorite}
+                  className={`inline-flex items-center justify-center min-w-[32px] min-h-[32px] -my-1 rounded text-base transition-colors ${
+                    isFavorite
+                      ? 'text-amber-400 hover:text-amber-300'
+                      : 'text-slate-600 hover:text-slate-400'
+                  }`}
+                  aria-label={
+                    isFavorite ? '관심종목에서 제거' : '관심종목에 추가'
+                  }
+                  aria-pressed={isFavorite}
+                >
+                  {isFavorite ? '⭐' : '☆'}
+                </button>
+              )}
               <span className="text-[10px] text-slate-500 truncate">
                 {f.exchange ?? ''}
               </span>
