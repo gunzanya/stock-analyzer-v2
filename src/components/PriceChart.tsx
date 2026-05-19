@@ -87,7 +87,7 @@ export function PriceChart({ bars }: Props) {
     <section className="rounded-xl bg-[#0f172a] border border-[#1e293b] p-5">
       <div className="flex items-baseline justify-between mb-3">
         <h3 className="text-xs font-semibold text-slate-400 tracking-wider uppercase">
-          주가 (최근 6개월)
+          주가 (최근 12개월)
         </h3>
         <div className="flex gap-3 text-[10px]">
           <Legend color="#94a3b8" label="종가" />

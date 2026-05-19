@@ -117,8 +117,9 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
   const typeInsight = getTypeInsight(classification.primary);
   const riskFactors = extractRiskFactors({ fund, safety: safetyGuard, indicators });
 
-  // Keep ~130 days of bars for the chart (6 months trading days)
-  const priceBars = stockBars.slice(0, 130);
+  // Keep ~252 days of bars for the chart (12 months trading days)
+  // — required so that SMA200 has enough lookback to render the line.
+  const priceBars = stockBars.slice(0, 252);
 
   return {
     fundamental: fund,
