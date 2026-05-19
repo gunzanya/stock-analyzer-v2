@@ -141,14 +141,87 @@ export interface PriceBar {
   volume: number | null;
 }
 
+// ---- CANSLIM (extended to 12 items) ----
+
+export type CanslimKey =
+  | 'C'  // Current quarterly earnings
+  | 'A'  // Annual earnings increases
+  | 'N'  // New highs / new products
+  | 'S'  // Supply & demand (volume, float)
+  | 'L'  // Leader (sector RS)
+  | 'I'  // Institutional sponsorship
+  | 'M'  // Market direction
+  | 'Q'  // Quality (ROE, margins)
+  | 'V'  // Valuation (PER, PEG)
+  | 'B'  // Balance sheet (debt)
+  | 'G'  // Revenue growth
+  | 'T'; // Trend (ADX, MA alignment)
+
+export interface CanslimItem {
+  key: CanslimKey;
+  label: string;        // Korean label
+  description: string;  // one-line explanation
+  score: number;        // 0-100
+  starredForTypes: StockType[]; // types where this is a core item
+}
+
+export interface CanslimResult {
+  items: CanslimItem[]; // length 12, in fixed order
+}
+
+// ---- Total score (weighted by classification) ----
+
+export interface TotalScoreResult {
+  score: number;        // 0-100 weighted average across CANSLIM
+  level: 'STRONG' | 'WATCH' | 'NEUTRAL' | 'AVOID';
+  // top 3 contributors and bottom 3 contributors
+  topContributors: { key: CanslimKey; label: string; score: number; weight: number }[];
+  bottomContributors: { key: CanslimKey; label: string; score: number; weight: number }[];
+}
+
+// ---- Trading strategy ----
+
+export interface StrategyResult {
+  entry: number | null;        // suggested entry price
+  stop: number | null;         // stop loss
+  target1: number | null;      // first profit target
+  target2: number | null;      // second target
+  riskReward1: number | null;  // R:R for target1
+  riskReward2: number | null;  // R:R for target2
+  atr14: number | null;        // ATR used
+  stopRule: string;            // human-readable
+  rationale: string;           // short paragraph
+}
+
+// ---- Type insights (per stock type) ----
+
+export interface TypeInsight {
+  type: StockType;
+  coreQuestions: string[];   // 1-2 key questions to monitor
+  thesis: string;            // investment logic summary
+  sellSignals: string[];     // 3-5 conditions to exit
+}
+
+// ---- Risk factors ----
+
+export interface RiskFactor {
+  severity: 'high' | 'medium' | 'low';
+  message: string;
+}
+
 // Final analyzer output per ticker
 export interface AnalysisResult {
   fundamental: FundamentalData;
   classification: ClassificationResult;
   entryScore: EntryScoreResult;
+  totalScore: TotalScoreResult;
+  canslim: CanslimResult;
+  strategy: StrategyResult;
+  typeInsight: TypeInsight;
+  riskFactors: RiskFactor[];
   safetyGuard: SafetyGuardResult;
   indicators: {
-    rs: number | null;            // relative strength 0–100
+    rs: number | null;
     adx: number | null;
     obvDivergence: boolean | null;
     volumeRatio: number | null;
@@ -156,5 +229,9 @@ export interface AnalysisResult {
     return90d: number | null;
     return1y: number | null;
     subIndustryEtf: string | null;
+    ema20: number | null;
+    sma50: number | null;
+    sma200: number | null;
   };
+  priceBars: PriceBar[]; // for chart (last ~130 days)
 }

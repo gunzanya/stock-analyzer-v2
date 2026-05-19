@@ -259,3 +259,54 @@ export function sanitizedReturn1y(bars: PriceBar[]): number | null {
   if (r != null && Math.abs(r) > 1.0) return null;
   return r;
 }
+
+// ---------- ATR (Welles Wilder, period 14) ----------
+
+/** Average True Range, period 14. Newest-first bars. */
+export function atr(bars: PriceBar[], period = 14): number | null {
+  if (bars.length < period + 1) return null;
+  const xs = [...bars].reverse(); // oldest-first
+  const tr: number[] = [];
+  for (let i = 1; i < xs.length; i++) {
+    const cur = xs[i];
+    const prev = xs[i - 1];
+    if (cur.high == null || cur.low == null || prev.close == null) {
+      tr.push(0);
+      continue;
+    }
+    tr.push(
+      Math.max(
+        cur.high - cur.low,
+        Math.abs(cur.high - prev.close),
+        Math.abs(cur.low - prev.close),
+      ),
+    );
+  }
+  // Wilder smoothing
+  let smoothed = tr.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < tr.length; i++) {
+    smoothed = (smoothed * (period - 1) + tr[i]) / period;
+  }
+  return Number.isFinite(smoothed) ? smoothed : null;
+}
+
+// ---------- EMA / SMA helpers ----------
+
+/** Exponential moving average over the most recent `period` bars. Newest-first. */
+export function ema(bars: PriceBar[], period: number): number | null {
+  if (bars.length < period) return null;
+  // EMA computed oldest-first
+  const xs = [...bars].reverse();
+  const k = 2 / (period + 1);
+  let value = xs.slice(0, period).reduce((a, b) => a + b.close, 0) / period;
+  for (let i = period; i < xs.length; i++) {
+    value = xs[i].close * k + value * (1 - k);
+  }
+  return Number.isFinite(value) ? value : null;
+}
+
+/** Simple moving average over the most recent `period` bars. Newest-first. */
+export function sma(bars: PriceBar[], period: number): number | null {
+  if (bars.length < period) return null;
+  return bars.slice(0, period).reduce((a, b) => a + b.close, 0) / period;
+}
