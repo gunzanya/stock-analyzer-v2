@@ -104,16 +104,31 @@ export function return1y(bars: PriceBar[]): number | null {
 
 // ---------- volume ratio ----------
 
-/** Latest day's volume divided by 20-bar average (newest after today). */
+/** Latest day's volume divided by 20-bar average (newest after today).
+ *  If the latest bar looks like an in-progress intraday snapshot
+ *  (volume < 30% of trailing 20-day avg), it's dropped and the previous
+ *  closed session is used instead — otherwise every ticker checked during
+ *  US market hours would falsely register a "거래량 위축 심각" deduction. */
 export function volumeRatio(bars: PriceBar[]): number | null {
   if (bars.length < 21) return null;
-  const today = bars[0].volume;
-  if (today == null) return null;
-  const sliced = bars.slice(1, 21).map((b) => b.volume).filter((v): v is number => v != null);
-  if (sliced.length < 10) return null;
-  const avg = sliced.reduce((a, b) => a + b, 0) / sliced.length;
-  if (avg <= 0) return null;
-  return today / avg;
+  const computeRatio = (idx: number): number | null => {
+    const latest = bars[idx]?.volume;
+    if (latest == null) return null;
+    const window = bars
+      .slice(idx + 1, idx + 21)
+      .map((b) => b.volume)
+      .filter((v): v is number => v != null);
+    if (window.length < 10) return null;
+    const avg = window.reduce((a, b) => a + b, 0) / window.length;
+    if (avg <= 0) return null;
+    return latest / avg;
+  };
+  const raw0 = computeRatio(0);
+  if (raw0 != null && raw0 < 0.3 && bars.length >= 22) {
+    const alt = computeRatio(1);
+    if (alt != null) return alt;
+  }
+  return raw0;
 }
 
 // ---------- ADX (Welles Wilder, period 14) ----------
