@@ -14,7 +14,7 @@ import {
   volumeRatio,
 } from '../src/lib/indicators.js';
 import { evaluateSafetyGuard } from '../src/lib/safetyGuard.js';
-import { computeEntryScore } from '../src/lib/entryScore.js';
+import { applyCoherenceFloor, computeEntryScore } from '../src/lib/entryScore.js';
 import { computeCanslim } from '../src/lib/canslim.js';
 import { computeTotalScore } from '../src/lib/totalScore.js';
 import { computeStrategy } from '../src/lib/strategy.js';
@@ -100,6 +100,7 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     return90d: r90,
   });
   const totalScore = computeTotalScore(canslim, classification);
+  const adjustedEntry = applyCoherenceFloor(entryScore, totalScore.score);
   const strategy = hasPrices
     ? computeStrategy(stockBars, classification)
     : {
@@ -122,7 +123,7 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
   return {
     fundamental: fund,
     classification,
-    entryScore,
+    entryScore: adjustedEntry,
     totalScore,
     canslim,
     strategy,

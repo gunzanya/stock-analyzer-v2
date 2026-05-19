@@ -234,13 +234,17 @@ export function obvBearishDivergence(bars: PriceBar[], lookback = 30): boolean |
 
 // ---------- RS (excess vs benchmark, 0–100 mapped) ----------
 
-/** Excess 3-month return vs benchmark, mapped to 0–100. */
+/** Excess 3-month return vs benchmark, mapped to 0–100, with an absolute-
+ *  momentum floor: a stock up materially over a year shouldn't read RS≈0
+ *  just because its sub-industry ETF ran even harder (TSM vs SOXX). */
 export function relativeStrength(
   stockBars: PriceBar[],
   benchmarkBars: PriceBar[],
 ): { rs: number; stockReturn3M: number | null; benchmarkReturn3M: number | null; excess: number | null } {
   const stockReturn3M = return90d(stockBars);
   const benchmarkReturn3M = return90d(benchmarkBars);
+  const stockReturn1Y = return1y(stockBars);
+
   if (stockReturn3M == null || benchmarkReturn3M == null) {
     return { rs: 50, stockReturn3M, benchmarkReturn3M, excess: null };
   }
@@ -249,6 +253,14 @@ export function relativeStrength(
   let rs = 50 + (excess / 0.30) * 50;
   if (rs < 0) rs = 0;
   if (rs > 100) rs = 100;
+
+  // Absolute-momentum floor: strong 1-year absolute return overrides a
+  // misleading low RS from a hot sub-sector comparison.
+  if (stockReturn1Y != null) {
+    if (stockReturn1Y > 1.0) rs = Math.max(rs, 50);
+    else if (stockReturn1Y > 0.5) rs = Math.max(rs, 30);
+  }
+
   return { rs, stockReturn3M, benchmarkReturn3M, excess };
 }
 

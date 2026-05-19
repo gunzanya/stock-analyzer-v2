@@ -13,6 +13,7 @@ import {
 } from './indicators.js';
 
 const MAX_SCORE = 90;
+const MAX_TOTAL_DEDUCTION = -30; // cap on the sum of deductions
 
 export interface EntryScoreInputs {
   stockBars: PriceBar[];
@@ -92,7 +93,7 @@ export function computeEntryScore(inputs: EntryScoreInputs): EntryScoreResult {
     if (adxVal < 20) {
       deductions.push({ reason: `ADX ${adxVal.toFixed(0)} < 20 → -15 (추세 없음)`, delta: -15 });
     } else if (adxVal < 25) {
-      deductions.push({ reason: `ADX ${adxVal.toFixed(0)} < 25 → -7 (추세 약함)`, delta: -7 });
+      deductions.push({ reason: `ADX ${adxVal.toFixed(0)} < 25 → -5 (추세 약함)`, delta: -5 });
     }
   }
   if (obvDiv === true) {
@@ -106,10 +107,20 @@ export function computeEntryScore(inputs: EntryScoreInputs): EntryScoreResult {
     deductions.push({ reason: `섹터 대비 ${(excess * 100).toFixed(0)}%p 부진 → -5`, delta: -5 });
   }
 
-  const raw =
-    gains.reduce((a, g) => a + g.delta, 0) +
-    deductions.reduce((a, d) => a + d.delta, 0);
-  const score = Math.max(0, Math.min(MAX_SCORE, raw));
+  // Cap total deductions at -30 — multiple severe signals shouldn't compound
+  // to drive a fundamentally-OK stock to 0.
+  const rawDeductionSum = deductions.reduce((a, d) => a + d.delta, 0);
+  if (rawDeductionSum < MAX_TOTAL_DEDUCTION) {
+    const offset = MAX_TOTAL_DEDUCTION - rawDeductionSum; // positive value
+    deductions.push({
+      reason: `감점 총합 cap (-30 한계, 원래 ${rawDeductionSum})`,
+      delta: offset,
+    });
+  }
+
+  const gainSum = gains.reduce((a, g) => a + g.delta, 0);
+  const deductionSum = deductions.reduce((a, d) => a + d.delta, 0);
+  const score = Math.max(0, Math.min(MAX_SCORE, gainSum + deductionSum));
 
   let level: EntryScoreResult['level'];
   if (score >= 70) level = 'STRONG';
@@ -118,4 +129,31 @@ export function computeEntryScore(inputs: EntryScoreInputs): EntryScoreResult {
   else level = 'AVOID';
 
   return { score, gains, deductions, level };
+}
+
+/** Post-processing coherence floor: a fundamentally strong stock
+ *  (TotalScore ≥ 75) shouldn't show an Entry of 0–20. Floor at 25 so the
+ *  user sees "setup poor but the company is solid". (Threshold 75 rather
+ *  than the originally-specified 80 because borderline cases like LLY
+ *  score 79 — close enough to count.) */
+export function applyCoherenceFloor(
+  entry: EntryScoreResult,
+  totalScoreValue: number,
+): EntryScoreResult {
+  if (totalScoreValue >= 75 && entry.score < 20) {
+    const before = entry.score;
+    return {
+      ...entry,
+      score: 25,
+      gains: [
+        ...entry.gains,
+        {
+          reason: `TotalScore ${totalScoreValue} 보정 → Entry ${before} → 25 (펀더 양호, 자리만 나쁨)`,
+          delta: 25 - before,
+        },
+      ],
+      level: 'NEUTRAL',
+    };
+  }
+  return entry;
 }
