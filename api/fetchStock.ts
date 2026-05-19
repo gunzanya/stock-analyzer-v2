@@ -5,6 +5,7 @@ import type {
   FundamentalData,
   QuarterlyDatum,
   AnnualDatum,
+  PriceBar,
 } from '../src/lib/types.js';
 
 // v3 requires instantiation
@@ -266,4 +267,43 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-export { fetchFundamental };
+/** Fetch daily OHLCV bars for the last `days` calendar days (default 400 — ~1y trading). */
+async function fetchPriceHistory(
+  ticker: string,
+  days = 400,
+): Promise<PriceBar[]> {
+  const upper = ticker.trim().toUpperCase();
+  const period1 = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const out = (await yahooFinance.chart(
+    upper,
+    { period1, interval: '1d' },
+    { validateResult: false },
+  )) as { quotes?: Array<Record<string, unknown>> } | null;
+
+  const quotes = out?.quotes ?? [];
+  const bars: PriceBar[] = [];
+  for (const q of quotes) {
+    const close =
+      (q.adjclose as number | undefined) ?? (q.close as number | undefined);
+    if (typeof close !== 'number' || !Number.isFinite(close)) continue;
+    const date =
+      q.date instanceof Date
+        ? q.date.toISOString().slice(0, 10)
+        : typeof q.date === 'string'
+          ? q.date.slice(0, 10)
+          : '';
+    if (!date) continue;
+    bars.push({
+      date,
+      open: (q.open as number) ?? null,
+      high: (q.high as number) ?? null,
+      low: (q.low as number) ?? null,
+      close,
+      volume: (q.volume as number) ?? null,
+    });
+  }
+  // Yahoo returns oldest-first; we want newest-first for indicator math.
+  return bars.reverse();
+}
+
+export { fetchFundamental, fetchPriceHistory };

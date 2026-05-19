@@ -131,6 +131,16 @@ export interface SafetyGuardResult {
   excessVsSector: number | null;
 }
 
+// Daily OHLCV bar
+export interface PriceBar {
+  date: string;          // ISO yyyy-mm-dd
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number;         // adjusted close — non-null is the contract
+  volume: number | null;
+}
+
 // Final analyzer output per ticker
 export interface AnalysisResult {
   fundamental: FundamentalData;
