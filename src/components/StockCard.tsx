@@ -84,13 +84,27 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
           </div>
         </div>
         <div className="mt-3 flex items-center gap-2 flex-wrap">
-          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-500/15 border border-indigo-700/50 text-indigo-300">
-            {primaryLabel.emoji} {cls.display}
+          <span
+            className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${
+              cls.uncertain
+                ? 'bg-slate-700/40 border-slate-600 text-slate-300'
+                : 'bg-indigo-500/15 border-indigo-700/50 text-indigo-300'
+            }`}
+          >
+            {cls.uncertain ? cls.display : `${primaryLabel.emoji} ${cls.display}`}
           </span>
-          <span className="text-[11px] text-slate-500">
-            신뢰도 {cls.confidence}%
-          </span>
+          {!cls.uncertain && (
+            <span className="text-[11px] text-slate-500">
+              신뢰도 {cls.confidence}%
+            </span>
+          )}
         </div>
+        {cls.uncertain && (
+          <p className="mt-2 text-[11px] text-slate-500 leading-relaxed">
+            7개 유형 모두 30점 미만. 다른 카드의 점수·인사이트·전략은 신뢰하지
+            마세요. 데이터 경고를 확인하거나 정확한 티커로 재시도하세요.
+          </p>
+        )}
       </header>
 
       {/* Safety banner (only when triggered) */}

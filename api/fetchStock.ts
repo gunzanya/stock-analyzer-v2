@@ -285,13 +285,22 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
   const shortPercentOfFloat = num(ks?.shortPercentOfFloat);
   const floatShares = num(ks?.floatShares);
 
+  // ----- Sanity: did Yahoo return anything at all? -----
+  const sectorVal = (ap?.sector ?? sp?.sector ?? null) as string | null;
+  const industryVal = (ap?.industry ?? sp?.industry ?? null) as string | null;
+  if (!sectorVal && !industryVal && marketCap == null && per == null) {
+    warnings.push(
+      `Yahoo가 핵심 데이터를 반환하지 않음 — '${upper}' 티커가 폐지/변경되었거나 잘못된 입력일 수 있음`,
+    );
+  }
+
   return {
     ticker: upper,
     name: price?.longName ?? price?.shortName ?? upper,
     exchange: (price?.exchangeName ?? null) as string | null,
     currency,
-    sector: (ap?.sector ?? sp?.sector ?? null) as string | null,
-    industry: (ap?.industry ?? sp?.industry ?? null) as string | null,
+    sector: sectorVal,
+    industry: industryVal,
 
     marketCap,
     price: num(price?.regularMarketPrice),

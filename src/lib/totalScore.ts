@@ -66,9 +66,18 @@ export function computeTotalScore(
   const top = [...contributions].sort((a, b) => b.contribution - a.contribution).slice(0, 3);
   const bottom = sortedAsc.slice(0, 3);
 
+  // When the classifier flagged the result as uncertain (extremely thin
+  // input data), neutral CANSLIM defaults can still produce a misleading
+  // ~40 score. Cap the displayed score so the UI doesn't claim NEUTRAL on
+  // garbage data.
+  let finalScore = Math.round(total);
+  if (classification.uncertain) {
+    finalScore = Math.min(finalScore, Math.max(0, Math.round(classification.confidence)));
+  }
+
   return {
-    score: Math.round(total),
-    level: levelOf(total),
+    score: finalScore,
+    level: classification.uncertain ? 'AVOID' : levelOf(total),
     topContributors: top.map(({ contribution: _c, ...rest }) => rest),
     bottomContributors: bottom.map(({ contribution: _c, ...rest }) => rest),
   };

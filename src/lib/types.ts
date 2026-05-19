@@ -111,6 +111,7 @@ export interface ClassificationResult {
   confidence: number;              // primary score 0–100
   candidates: TypeCandidateScore[]; // all 7, sorted desc
   display: string;                 // e.g. "🚀 고성장 60% + 🏛️ 대형우량 40%"
+  uncertain: boolean;              // true when even the best type < 30
 }
 
 // Entry score
