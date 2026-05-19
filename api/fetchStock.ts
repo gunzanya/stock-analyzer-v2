@@ -72,17 +72,53 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
   const ap = summary.assetProfile;
   const sp = summary.summaryProfile;
 
-  // ----- Income statement (quarterly) -----
-  const isq = summary.incomeStatementHistoryQuarterly?.incomeStatementHistory ?? [];
-  const quarterly: QuarterlyDatum[] = isq.slice(0, 4).map((row) => ({
-    date: dateString(row.endDate),
-    eps: null, // filled below from earningsHistory
-    revenue: num(row.totalRevenue),
-    operatingIncome: num(row.operatingIncome),
-    netIncome: num(row.netIncome),
-  }));
+  // ----- Income statement (quarterly): primary source is now
+  // fundamentalsTimeSeries(financials). The quoteSummary submodules return
+  // "almost no data since Nov 2024" (Yahoo deprecation notice). Adjusted EPS
+  // still comes from earningsHistory.
+  const quarterly: QuarterlyDatum[] = [];
+  try {
+    const period1 = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000);
+    const ftsRaw = (await yahooFinance.fundamentalsTimeSeries(
+      upper,
+      { period1, type: 'quarterly', module: 'financials' },
+      { validateResult: false },
+    )) as Array<Record<string, number | Date | undefined>>;
+    if (Array.isArray(ftsRaw) && ftsRaw.length > 0) {
+      // Yahoo returns oldest-first; we want newest-first.
+      const ordered = [...ftsRaw].reverse().slice(0, 4);
+      for (const row of ordered) {
+        const date = row.date instanceof Date ? row.date.toISOString().slice(0, 10) : '';
+        if (!date) continue;
+        quarterly.push({
+          date,
+          eps: null, // filled below
+          revenue: typeof row.totalRevenue === 'number' ? row.totalRevenue : null,
+          operatingIncome:
+            typeof row.operatingIncome === 'number' ? row.operatingIncome : null,
+          netIncome: typeof row.netIncome === 'number' ? row.netIncome : null,
+        });
+      }
+    }
+  } catch (err) {
+    warnings.push(`fundamentalsTimeSeries(financials) failed: ${(err as Error).message}`);
+  }
+  // Fallback: quoteSummary submodule (rarely populated after 2024-11)
+  if (quarterly.length === 0) {
+    const isq = summary.incomeStatementHistoryQuarterly?.incomeStatementHistory ?? [];
+    for (const row of isq.slice(0, 4)) {
+      quarterly.push({
+        date: dateString(row.endDate),
+        eps: null,
+        revenue: num(row.totalRevenue),
+        operatingIncome: num(row.operatingIncome),
+        netIncome: num(row.netIncome),
+      });
+    }
+  }
 
-  // Merge quarterly EPS from earningsHistory (most-recent first there too)
+  // Merge quarterly EPS from earningsHistory (adjusted/reported EPS, which is
+  // what investors use; GAAP EPS from financials TS may be skewed by one-offs).
   const eh = summary.earningsHistory?.history ?? [];
   const ehByDate = new Map<string, number | null>();
   for (const e of eh) {
@@ -92,7 +128,7 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
   for (const q of quarterly) {
     if (q.date && ehByDate.has(q.date)) q.eps = ehByDate.get(q.date) ?? null;
   }
-  // If quarterly array is empty but earnings history exists, build from it
+  // Last resort: if quarterly is still empty, build from earningsHistory alone
   if (quarterly.length === 0 && eh.length > 0) {
     for (const e of eh.slice(0, 4)) {
       quarterly.push({
@@ -104,15 +140,51 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
       });
     }
   }
+  // Data-bug warnings (stage 6)
+  if (quarterly.every((q) => q.revenue == null || q.revenue === 0)) {
+    warnings.push('quarterly revenue all null/0 — 지주사 가능성 OR 데이터 부족');
+  }
+  if (quarterly.every((q) => q.operatingIncome == null)) {
+    warnings.push('quarterly operatingIncome 전체 null — CYCLICAL 변동성 분석 제한');
+  }
 
-  // ----- Income statement (annual) -----
-  const isa = summary.incomeStatementHistory?.incomeStatementHistory ?? [];
-  const annual: AnnualDatum[] = isa.slice(0, 5).map((row) => ({
-    date: dateString(row.endDate),
-    eps: null,
-    revenue: num(row.totalRevenue),
-    netIncome: num(row.netIncome),
-  }));
+  // ----- Income statement (annual) via fundamentalsTimeSeries
+  const annual: AnnualDatum[] = [];
+  try {
+    const period1 = new Date(Date.now() - 6 * 365 * 24 * 60 * 60 * 1000);
+    const ftsRaw = (await yahooFinance.fundamentalsTimeSeries(
+      upper,
+      { period1, type: 'annual', module: 'financials' },
+      { validateResult: false },
+    )) as Array<Record<string, number | Date | undefined>>;
+    if (Array.isArray(ftsRaw) && ftsRaw.length > 0) {
+      const ordered = [...ftsRaw].reverse().slice(0, 5);
+      for (const row of ordered) {
+        const date = row.date instanceof Date ? row.date.toISOString().slice(0, 10) : '';
+        if (!date) continue;
+        annual.push({
+          date,
+          eps: typeof row.dilutedEPS === 'number' ? row.dilutedEPS : null,
+          revenue: typeof row.totalRevenue === 'number' ? row.totalRevenue : null,
+          netIncome: typeof row.netIncome === 'number' ? row.netIncome : null,
+        });
+      }
+    }
+  } catch (err) {
+    warnings.push(`fundamentalsTimeSeries(annual financials) failed: ${(err as Error).message}`);
+  }
+  // Fallback to quoteSummary
+  if (annual.length === 0) {
+    const isa = summary.incomeStatementHistory?.incomeStatementHistory ?? [];
+    for (const row of isa.slice(0, 5)) {
+      annual.push({
+        date: dateString(row.endDate),
+        eps: null,
+        revenue: num(row.totalRevenue),
+        netIncome: num(row.netIncome),
+      });
+    }
+  }
 
   // ----- Balance sheet via fundamentalsTimeSeries (Yahoo deprecated the
   // quoteSummary balanceSheet* submodules in Nov 2024). -----
@@ -180,9 +252,23 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
   const grossMargin = num(fd?.grossMargins);
 
   // ----- Growth -----
-  const epsGrowthYoY = num(fd?.earningsGrowth);
+  let epsGrowthYoY = num(fd?.earningsGrowth);
   const revenueGrowthYoY = num(fd?.revenueGrowth);
   const epsGrowth5y = null; // not always available; defer to derived calc
+
+  // Data-bug guard: extreme EPS growth (>1000%) is almost always a base-effect
+  // artifact (e.g. EPS went from 0.01 to 1.00). Flag and cap downstream.
+  if (epsGrowthYoY != null && epsGrowthYoY > 10) {
+    warnings.push(
+      `EPS growth ${(epsGrowthYoY * 100).toFixed(0)}% — 기저효과/일회성 가능성, FAST_GROWER 점수 캡 적용됨`,
+    );
+  }
+  // Capture extreme negative growth too (just for transparency)
+  if (epsGrowthYoY != null && epsGrowthYoY < -5) {
+    warnings.push(`EPS growth ${(epsGrowthYoY * 100).toFixed(0)}% — 적자 전환/기저 효과`);
+    // leave value unchanged
+  }
+  void epsGrowthYoY;
 
   // ----- Dividend -----
   const dividendYield = num(sd?.dividendYield) ?? num(sd?.trailingAnnualDividendYield);

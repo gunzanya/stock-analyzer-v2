@@ -52,10 +52,19 @@ function hasCryptoHoldingHint(fund: FundamentalData): boolean {
   return /bitcoin|crypto|digital asset|blockchain/.test(haystack);
 }
 
-/** Detects holding-company hints in name. */
+/** Detects holding-company hints in name. Avoids generic "Holdings, Inc."
+ *  which is just a US corporate legal suffix (CrowdStrike Holdings,
+ *  Robinhood Markets Holdings, etc. are operating companies, not holdcos). */
 function hasHoldingsHint(fund: FundamentalData): boolean {
   const n = fund.name.toLowerCase();
-  return /holdings|berkshire|hathaway|conglomerate|지주|holding co/.test(n);
+  // Specific named holdcos
+  if (/berkshire|hathaway|sk square|^square /.test(n)) return true;
+  // Korean conglomerate suffixes
+  if (/지주|holding co|conglomerate/.test(n)) return true;
+  // "X Holdings" only counts if it's clearly a financial holding co
+  // (Financial Services sector); otherwise it's just a legal suffix.
+  if (/holdings/.test(n) && fund.sector === 'Financial Services') return true;
+  return false;
 }
 
 /** Detects speculative themes in name/industry. */
@@ -150,6 +159,30 @@ function scoreFastGrower(fund: FundamentalData): TypeCandidateScore {
     reasons.push(`섹터 ${fund.sector} → +5`);
   }
 
+  // Strong rev growth with positive earnings — captures fast growers whose
+  // EPS YoY is null/messy due to comparison issues (SHOP path).
+  if (
+    isNum(rev) &&
+    rev > 0.3 &&
+    fund.quarterly[0]?.eps != null &&
+    fund.quarterly[0].eps > 0 &&
+    (!isNum(eps) || eps > 0)
+  ) {
+    score += 15;
+    reasons.push(`매출 +${(rev * 100).toFixed(0)}% (>30%) + 흑자 → +15`);
+  }
+
+  // Mega-cap defensives are not "fast growers" even when a one-year EPS spike
+  // pushes growth metrics. (COST $477B, Consumer Defensive.)
+  if (
+    isNum(fund.marketCap) &&
+    fund.marketCap > 200e9 &&
+    (fund.sector === 'Consumer Defensive' || fund.sector === 'Utilities')
+  ) {
+    score -= 10;
+    reasons.push(`메가캡 ${fund.sector} → -10 (구조적 고성장 아님)`);
+  }
+
   // Caps the score in case of insanely high one-shot EPS (stage 6 defense)
   if (isNum(eps) && eps > 10) {
     score = Math.min(score, 50);
@@ -201,6 +234,27 @@ function scoreStalwart(fund: FundamentalData): TypeCandidateScore {
   if (hasLossInLastQuarters(fund, 4)) {
     score -= 20;
     reasons.push('적자 분기 존재 → -20 (우량주 아님)');
+  }
+
+  // Holdings/conglomerate name → not a stalwart, leave it for ASSET_PLAY.
+  if (hasHoldingsHint(fund)) {
+    score -= 20;
+    reasons.push('지주사/Holdings 이름 패턴 → -20 (우량주 아님)');
+  }
+
+  // Recent annual loss → profit flip → not yet a stalwart (still a turnaround).
+  // Requires several years of consistent profit before earning STALWART status.
+  if (fund.annual.length >= 2) {
+    const thisYr = fund.annual[0];
+    const priorYears = fund.annual.slice(1, 4);
+    if (
+      thisYr.netIncome != null &&
+      thisYr.netIncome > 0 &&
+      priorYears.some((y) => y.netIncome != null && y.netIncome < 0)
+    ) {
+      score -= 15;
+      reasons.push('최근 3년 내 적자→흑자 전환 이력 → -15 (아직 우량주 아님)');
+    }
   }
 
   // Sector boost
@@ -365,26 +419,38 @@ function scoreTurnaround(fund: FundamentalData): TypeCandidateScore {
 
   const hadLoss = hasLossInLastQuarters(fund, 4);
   const recoveredNow = latestQuarterProfitable(fund);
-  // Sum of last 4 quarters EPS — captures volatile recoveries like BA
-  // (latest still tiny negative, but TTM positive after a big bounce-back).
   const ttmEpsSum = fund.quarterly
     .slice(0, 4)
     .reduce((acc, q) => acc + (q.eps ?? 0), 0);
   const ttmPositive = ttmEpsSum > 0;
 
-  // Disqualify: no loss history → not a turnaround
-  if (!hadLoss) {
+  // Annual-flip path: any of the last 3 fiscal years had a net loss AND
+  // the current fiscal year is profitable. Captures HOOD/Kakao-style
+  // recoveries where the loss happened 1–3 years ago.
+  let annualFlip = false;
+  if (fund.annual.length >= 2) {
+    // annual[] is newest-first
+    const thisYr = fund.annual[0];
+    if (thisYr.netIncome != null && thisYr.netIncome > 0) {
+      const priorYears = fund.annual.slice(1, 4);
+      if (priorYears.some((y) => y.netIncome != null && y.netIncome < 0)) {
+        annualFlip = true;
+      }
+    }
+  }
+
+  // Disqualify only if no loss history at all (neither quarterly nor annual)
+  if (!hadLoss && !annualFlip) {
     return {
       type: 'TURNAROUND',
       score: 0,
       reasons: [],
       disqualified: true,
-      disqualifyReason: '최근 4분기 적자 이력 없음 — 턴어라운드 아님',
+      disqualifyReason: '적자 이력 없음 (4분기·연간 모두) — 턴어라운드 아님',
     };
   }
-  // Disqualify: persistently losing (latest negative AND TTM negative)
-  // → still SPECULATIVE territory, not a recovery.
-  if (!recoveredNow && !ttmPositive) {
+  // Disqualify: persistently losing (latest negative AND TTM negative AND no annual flip)
+  if (!recoveredNow && !ttmPositive && !annualFlip) {
     return {
       type: 'TURNAROUND',
       score: 0,
@@ -394,16 +460,20 @@ function scoreTurnaround(fund: FundamentalData): TypeCandidateScore {
     };
   }
 
-  // Loss-→-recovery pattern confirmed
-  score += 25;
-  reasons.push('최근 4분기 중 적자 분기 존재 → +25');
+  if (hadLoss) {
+    score += 25;
+    reasons.push('최근 4분기 중 적자 분기 존재 → +25');
+  }
   if (recoveredNow) {
     score += 15;
     reasons.push('최근 분기 흑자전환 → +15');
-  } else {
-    // Latest still negative but TTM positive — partial recovery
+  } else if (ttmPositive && hadLoss) {
     score += 10;
     reasons.push('TTM EPS 흑자 (변동성 큰 회복 중) → +10');
+  }
+  if (annualFlip) {
+    score += 20;
+    reasons.push('전년 순손실 → 올해 순이익 → +20');
   }
 
   // Operating income QoQ flipped positive
@@ -417,20 +487,6 @@ function scoreTurnaround(fund: FundamentalData): TypeCandidateScore {
   ) {
     score += 15;
     reasons.push('영업이익 QoQ 흑자전환 → +15');
-  }
-
-  // Annual: previous year net loss → this year profit
-  if (fund.annual.length >= 2) {
-    const [thisYr, prevYr] = fund.annual;
-    if (
-      thisYr.netIncome != null &&
-      prevYr.netIncome != null &&
-      thisYr.netIncome > 0 &&
-      prevYr.netIncome < 0
-    ) {
-      score += 20;
-      reasons.push('전년 순손실 → 올해 순이익 → +20');
-    }
   }
 
   return { type: 'TURNAROUND', score: Math.max(0, score), reasons };
@@ -501,8 +557,8 @@ function scoreAssetPlay(fund: FundamentalData): TypeCandidateScore {
 
   // Names (30%)
   if (hasHoldingsHint(fund)) {
-    score += 15;
-    reasons.push('지주사/Holdings/Berkshire → +15');
+    score += 25;
+    reasons.push('지주사/Holdings/Berkshire → +25');
   }
   if (hasCryptoHoldingHint(fund)) {
     score += 20;
@@ -526,13 +582,39 @@ function scoreSpeculative(fund: FundamentalData): TypeCandidateScore {
     score += 30;
     reasons.push(`2분기 연속 적자 + PSR ${fund.psr.toFixed(0)} → +30`);
   }
-  // 4 consecutive negative quarters — persistent unprofitability (RIVN pattern)
+  // 4 consecutive negative quarters AND deeply negative op margin —
+  // persistent burn (RIVN), not just a cyclical down year (CLF, op margin -6%).
   const recent4 = fund.quarterly.slice(0, 4);
   const allFourLoss =
     recent4.length === 4 && recent4.every((q) => q.eps != null && q.eps < 0);
   if (allFourLoss) {
-    score += 25;
-    reasons.push('최근 4분기 연속 적자 → +25 (지속 불수익)');
+    const opMargins = recent4
+      .map((q) =>
+        q.operatingIncome != null && q.revenue != null && q.revenue > 0
+          ? q.operatingIncome / q.revenue
+          : null,
+      )
+      .filter((v): v is number => v != null);
+    if (opMargins.length > 0) {
+      const avgOpMargin = opMargins.reduce((a, b) => a + b, 0) / opMargins.length;
+      if (avgOpMargin < -0.1) {
+        score += 25;
+        reasons.push(
+          `4분기 연속 적자 + 영업이익률 평균 ${(avgOpMargin * 100).toFixed(0)}% → +25 (burn rate)`,
+        );
+      }
+    }
+  }
+
+  // Independent path: persistent op-income loss + nosebleed PSR (IONQ).
+  // Catches companies that report positive net-EPS via non-operating gains
+  // while the operating business is deeply unprofitable.
+  const allFourOpLoss =
+    recent4.length === 4 &&
+    recent4.every((q) => q.operatingIncome != null && q.operatingIncome < 0);
+  if (allFourOpLoss && isNum(fund.psr) && fund.psr > 20) {
+    score += 30;
+    reasons.push(`4분기 연속 영업적자 + PSR ${fund.psr.toFixed(0)} → +30 (operating burn)`);
   }
 
   // EPS<0 + revenue<$500M + mcap>$5B
