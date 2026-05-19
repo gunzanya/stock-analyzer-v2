@@ -131,28 +131,43 @@ export function computeEntryScore(inputs: EntryScoreInputs): EntryScoreResult {
   return { score, gains, deductions, level };
 }
 
-/** Post-processing coherence floor: a fundamentally strong stock
- *  (TotalScore ≥ 75) shouldn't show an Entry of 0–20. Floor at 25 so the
- *  user sees "setup poor but the company is solid". (Threshold 75 rather
- *  than the originally-specified 80 because borderline cases like LLY
- *  score 79 — close enough to count.) */
+/** Post-processing coherence floor: a fundamentally OK stock shouldn't
+ *  show an extreme Entry of 0–10. Tiered floors prevent the case where
+ *  MSFT (Total 62, Entry 0) or PEP (Total 47, Entry 17) collapse to near-zero
+ *  just because the setup is poor.
+ *    Total ≥ 75 → Entry ≥ 25 (level NEUTRAL — company is solid)
+ *    Total ≥ 60 → Entry ≥ 20 (level stays AVOID — fundamentals OK, setup bad)
+ *    Total ≥ 50 → Entry ≥ 15 (level stays AVOID) */
 export function applyCoherenceFloor(
   entry: EntryScoreResult,
   totalScoreValue: number,
 ): EntryScoreResult {
-  if (totalScoreValue >= 75 && entry.score < 20) {
+  let floor = 0;
+  let flooredLevel: EntryScoreResult['level'] | null = null;
+  if (totalScoreValue >= 75) {
+    floor = 25;
+    flooredLevel = 'NEUTRAL';
+  } else if (totalScoreValue >= 60) {
+    floor = 20;
+    flooredLevel = 'AVOID';
+  } else if (totalScoreValue >= 50) {
+    floor = 15;
+    flooredLevel = 'AVOID';
+  }
+
+  if (floor > 0 && entry.score < floor) {
     const before = entry.score;
     return {
       ...entry,
-      score: 25,
+      score: floor,
       gains: [
         ...entry.gains,
         {
-          reason: `TotalScore ${totalScoreValue} 보정 → Entry ${before} → 25 (펀더 양호, 자리만 나쁨)`,
-          delta: 25 - before,
+          reason: `TotalScore ${totalScoreValue} 보정 → Entry ${before} → ${floor} (펀더 양호, 자리만 나쁨)`,
+          delta: floor - before,
         },
       ],
-      level: 'NEUTRAL',
+      level: flooredLevel!,
     };
   }
   return entry;
