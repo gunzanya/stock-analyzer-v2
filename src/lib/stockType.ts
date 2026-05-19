@@ -1,0 +1,640 @@
+// 7-type stock classifier
+// Design: numbers 70% + name 30%. Each type produces a 0–100 score plus reasons.
+// Hard rules can disqualify a type (e.g. negative revenue → not a FAST_GROWER).
+// Blending is handled in typeWeights.ts.
+
+import type {
+  FundamentalData,
+  StockType,
+  TypeCandidateScore,
+} from './types.js';
+
+// ---------- helpers ----------
+
+/** Returns true if any of the last n quarters had EPS < 0. */
+function hasLossInLastQuarters(fund: FundamentalData, n: number): boolean {
+  return fund.quarterly.slice(0, n).some((q) => q.eps != null && q.eps < 0);
+}
+
+/** Returns true if the most recent quarter is profitable (EPS > 0). */
+function latestQuarterProfitable(fund: FundamentalData): boolean {
+  const q = fund.quarterly[0];
+  return q != null && q.eps != null && q.eps > 0;
+}
+
+/** Coefficient of variation = stdev / |mean| over an array of numbers. null if <2 values or |mean| ≈ 0. */
+function coefficientOfVariation(values: (number | null)[]): number | null {
+  const xs = values.filter((v): v is number => v != null && Number.isFinite(v));
+  if (xs.length < 2) return null;
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  if (Math.abs(mean) < 1e-9) return null;
+  const variance = xs.reduce((acc, v) => acc + (v - mean) ** 2, 0) / xs.length;
+  return Math.sqrt(variance) / Math.abs(mean);
+}
+
+/** Range (max - min) of last n quarter operating margins, as a fraction. */
+function operatingMarginRange(fund: FundamentalData): number | null {
+  const margins = fund.quarterly
+    .slice(0, 4)
+    .map((q) =>
+      q.operatingIncome != null && q.revenue != null && q.revenue > 0
+        ? q.operatingIncome / q.revenue
+        : null,
+    )
+    .filter((v): v is number => v != null);
+  if (margins.length < 2) return null;
+  return Math.max(...margins) - Math.min(...margins);
+}
+
+/** Detects crypto/bitcoin holdings hint in name or industry. */
+function hasCryptoHoldingHint(fund: FundamentalData): boolean {
+  const haystack = `${fund.name} ${fund.industry ?? ''}`.toLowerCase();
+  return /bitcoin|crypto|digital asset|blockchain/.test(haystack);
+}
+
+/** Detects holding-company hints in name. */
+function hasHoldingsHint(fund: FundamentalData): boolean {
+  const n = fund.name.toLowerCase();
+  return /holdings|berkshire|hathaway|conglomerate|지주|holding co/.test(n);
+}
+
+/** Detects speculative themes in name/industry. */
+function hasSpeculativeTheme(fund: FundamentalData): boolean {
+  const haystack = `${fund.name} ${fund.industry ?? ''}`.toLowerCase();
+  return /quantum|space|cannabis|blockchain|meme|electric vehicle/.test(haystack);
+}
+
+/** Semiconductor subtype detector (for CYCLICAL nuance, per stage 5). */
+export function getSemiType(
+  fund: FundamentalData,
+): 'memory' | 'fabless' | 'equipment' | 'general' | null {
+  if (!fund.industry || !/semi/i.test(fund.industry)) return null;
+  const name = fund.name.toLowerCase();
+  if (/hynix|micron|samsung electronics|nand|dram|memory/.test(name)) return 'memory';
+  if (/broadcom|qualcomm|nvidia|amd|marvell|mediatek/.test(name)) return 'fabless';
+  if (/asml|applied materials|lam research|klac|tokyo electron/.test(name)) return 'equipment';
+  return 'general';
+}
+
+// Convenience: gate inputs (avoid double-counting on null)
+const isNum = (v: number | null | undefined): v is number =>
+  v != null && Number.isFinite(v);
+
+// ---------- per-type scorers ----------
+
+function scoreFastGrower(fund: FundamentalData): TypeCandidateScore {
+  const reasons: string[] = [];
+  let score = 0;
+
+  const eps = fund.epsGrowthYoY;
+  const rev = fund.revenueGrowthYoY;
+  const divY = fund.dividendYield ?? 0;
+
+  // Hard disqualifications
+  if (isNum(rev) && rev < 0) {
+    return {
+      type: 'FAST_GROWER',
+      score: 0,
+      reasons: [],
+      disqualified: true,
+      disqualifyReason: `매출 역성장(${(rev * 100).toFixed(1)}%) — 고성장 자격 박탈`,
+    };
+  }
+  if (isNum(rev) && isNum(eps) && rev < 0.05 && eps > 0.5) {
+    return {
+      type: 'FAST_GROWER',
+      score: 0,
+      reasons: [],
+      disqualified: true,
+      disqualifyReason: '매출<5%인데 EPS>50% — 일회성 이익 의심',
+    };
+  }
+  if (divY > 0.03) {
+    return {
+      type: 'FAST_GROWER',
+      score: 0,
+      reasons: [],
+      disqualified: true,
+      disqualifyReason: `배당수익률 ${(divY * 100).toFixed(1)}% — 배당주는 고성장 아님`,
+    };
+  }
+
+  // Numbers (70%)
+  if (isNum(eps) && eps > 0.2) {
+    score += 15;
+    reasons.push(`EPS YoY +${(eps * 100).toFixed(0)}% → +15`);
+  }
+  if (isNum(rev) && rev > 0.15) {
+    score += 15;
+    reasons.push(`매출 YoY +${(rev * 100).toFixed(0)}% → +15`);
+  }
+  // Both growing → bonus
+  if (isNum(eps) && isNum(rev) && eps > 0.15 && rev > 0.1) {
+    score += 10;
+    reasons.push('EPS+매출 동시 성장 → +10');
+  }
+  if (isNum(fund.peg) && fund.peg > 0 && fund.peg < 2.0) {
+    score += 5;
+    reasons.push(`PEG ${fund.peg.toFixed(1)} → +5`);
+  }
+
+  // Recent loss-quarter penalty (turnaround masquerading as growth)
+  if (hasLossInLastQuarters(fund, 4)) {
+    score -= 20;
+    reasons.push('최근 4분기 중 적자 분기 존재 → -20 (턴어라운드 의심)');
+  }
+
+  // Names (30%) — light boost only
+  if (fund.sector === 'Technology' || fund.sector === 'Healthcare') {
+    score += 5;
+    reasons.push(`섹터 ${fund.sector} → +5`);
+  }
+
+  // Caps the score in case of insanely high one-shot EPS (stage 6 defense)
+  if (isNum(eps) && eps > 10) {
+    score = Math.min(score, 50);
+    reasons.push(`EPS YoY ${(eps * 100).toFixed(0)}% 극단치 → 캡 50`);
+  }
+
+  return {
+    type: 'FAST_GROWER',
+    score: Math.max(0, score),
+    reasons,
+  };
+}
+
+function scoreStalwart(fund: FundamentalData): TypeCandidateScore {
+  const reasons: string[] = [];
+  let score = 0;
+
+  const mcap = fund.marketCap;
+  if (isNum(mcap)) {
+    if (mcap > 50e9) {
+      score += 15;
+      reasons.push(`시총 $${(mcap / 1e9).toFixed(0)}B (>50B) → +15`);
+    } else if (mcap > 10e9) {
+      score += 10;
+      reasons.push(`시총 $${(mcap / 1e9).toFixed(0)}B (10B-50B) → +10`);
+    }
+  }
+
+  const eps = fund.epsGrowthYoY;
+  if (isNum(eps) && eps >= 0.08 && eps <= 0.25) {
+    score += 15;
+    reasons.push(`EPS YoY ${(eps * 100).toFixed(0)}% (8-25% 안정 구간) → +15`);
+  }
+  if (isNum(eps) && eps > 0.5) {
+    score -= 10;
+    reasons.push(`EPS YoY ${(eps * 100).toFixed(0)}% 과도 → -10 (우량보다 고성장)`);
+  }
+
+  if (isNum(fund.roe) && fund.roe > 0.15) {
+    score += 10;
+    reasons.push(`ROE ${(fund.roe * 100).toFixed(0)}% → +10`);
+  }
+  if (isNum(fund.operatingMargin) && fund.operatingMargin > 0.15) {
+    score += 10;
+    reasons.push(`영업이익률 ${(fund.operatingMargin * 100).toFixed(0)}% → +10`);
+  }
+
+  // Loss-quarter penalty
+  if (hasLossInLastQuarters(fund, 4)) {
+    score -= 20;
+    reasons.push('적자 분기 존재 → -20 (우량주 아님)');
+  }
+
+  // Sector boost
+  if (
+    fund.sector === 'Consumer Defensive' ||
+    fund.sector === 'Healthcare' ||
+    fund.sector === 'Financial Services'
+  ) {
+    if (isNum(mcap) && mcap > 50e9) {
+      score += 10;
+      reasons.push(`대형 ${fund.sector} → +10`);
+    }
+  }
+
+  return { type: 'STALWART', score: Math.max(0, score), reasons };
+}
+
+function scoreSlowGrower(fund: FundamentalData): TypeCandidateScore {
+  const reasons: string[] = [];
+  let score = 0;
+  const divY = fund.dividendYield ?? 0;
+
+  // Hard disqualify: no/low dividend (per spec: 카카오/GME 보호)
+  if (divY < 0.005) {
+    return {
+      type: 'SLOW_GROWER',
+      score: 0,
+      reasons: [],
+      disqualified: true,
+      disqualifyReason: `배당수익률 ${(divY * 100).toFixed(2)}% — 배당주 아님`,
+    };
+  }
+
+  if (divY > 0.03) {
+    score += 20;
+    reasons.push(`배당수익률 ${(divY * 100).toFixed(1)}% (>3%) → +20`);
+  }
+  if (divY > 0.05) {
+    score += 10;
+    reasons.push(`배당수익률 ${(divY * 100).toFixed(1)}% (>5%) → +10`);
+  }
+
+  // Growth-rate bonuses gated on real dividend (>=4%); otherwise any stable
+  // large-cap with mild dividend would land here (XOM 2.57%, GM 0.98%).
+  const incomeStock = divY >= 0.04;
+  const rev = fund.revenueGrowthYoY;
+  if (incomeStock && isNum(rev) && rev < 0.1) {
+    score += 15;
+    reasons.push(`매출 YoY ${(rev * 100).toFixed(0)}% (<10%) + 배당주 → +15`);
+  }
+  const eps = fund.epsGrowthYoY;
+  if (incomeStock && isNum(eps) && eps < 0.15) {
+    score += 10;
+    reasons.push(`EPS YoY ${(eps * 100).toFixed(0)}% (<15%) + 배당주 → +10`);
+  }
+  if (incomeStock && isNum(fund.marketCap) && fund.marketCap > 10e9) {
+    score += 5;
+    reasons.push(`시총 $${(fund.marketCap / 1e9).toFixed(0)}B + 배당주 → +5`);
+  }
+
+  // Name/sector (30%)
+  const sec = fund.sector ?? '';
+  const ind = fund.industry ?? '';
+  if (sec === 'Utilities' || sec === 'Consumer Defensive' || sec === 'Real Estate') {
+    score += 15;
+    reasons.push(`섹터 ${sec} → +15`);
+  }
+  if (/REIT/i.test(ind)) {
+    score += 10;
+    reasons.push(`산업 REIT → +10`);
+  }
+  if (/tobacco|BDC|asset management|MLP/i.test(ind)) {
+    score += 10;
+    reasons.push(`산업 ${ind} → +10`);
+  }
+
+  return { type: 'SLOW_GROWER', score: Math.max(0, score), reasons };
+}
+
+function scoreCyclical(fund: FundamentalData): TypeCandidateScore {
+  const reasons: string[] = [];
+  let score = 0;
+
+  const epsCoV = coefficientOfVariation(fund.quarterly.slice(0, 4).map((q) => q.eps));
+  const revCoV = coefficientOfVariation(fund.quarterly.slice(0, 4).map((q) => q.revenue));
+  const rev = fund.revenueGrowthYoY;
+  const eps = fund.epsGrowthYoY;
+
+  // Numbers (70%)
+  // EPS volatile AND revenue also moves → genuine cyclical (META protect: rev stable)
+  if (epsCoV != null && epsCoV > 0.5 && revCoV != null && revCoV > 0.3) {
+    score += 15;
+    reasons.push(
+      `EPS CoV ${epsCoV.toFixed(2)} + 매출 CoV ${revCoV.toFixed(2)} → +15 (변동성↑)`,
+    );
+  }
+  // Commodity-recovery pattern: rev shrinking but EPS jumping
+  if (isNum(rev) && rev < 0 && isNum(eps) && eps > 0.5) {
+    score += 20;
+    reasons.push(
+      `매출 역성장(${(rev * 100).toFixed(0)}%)+EPS 급등(${(eps * 100).toFixed(0)}%) → +20 (원자재 회복)`,
+    );
+  }
+  const opRange = operatingMarginRange(fund);
+  if (opRange != null && opRange > 0.1) {
+    score += 10;
+    reasons.push(`영업이익률 변동폭 ${(opRange * 100).toFixed(0)}pp → +10`);
+  }
+
+  // Names (30%)
+  const sec = fund.sector ?? '';
+  const ind = fund.industry ?? '';
+  if (sec === 'Energy' || sec === 'Basic Materials' || sec === 'Industrials') {
+    score += 20;
+    reasons.push(`섹터 ${sec} → +20`);
+  } else if (sec === 'Consumer Cyclical') {
+    score += 10;
+    reasons.push(`섹터 Consumer Cyclical → +10`);
+  }
+  if (/auto|steel|chemical|airline|shipping|construction|aluminum|copper|oil|gas|petroleum|mining|metals/i.test(ind)) {
+    score += 15;
+    reasons.push(`산업 ${ind} → +15`);
+  }
+  // Down-phase: revenue + EPS both contracting → cyclical trough signal
+  if (isNum(rev) && rev < 0 && isNum(eps) && eps < 0) {
+    score += 10;
+    reasons.push(`매출+EPS 동시 역성장 → +10 (순환 하강)`);
+  }
+  // Semiconductor nuance (stage 5)
+  const semi = getSemiType(fund);
+  if (semi === 'memory') {
+    score += 10;
+    reasons.push('메모리 반도체 → +10');
+  } else if (semi === 'equipment') {
+    score += 15;
+    reasons.push('반도체 장비 → +15');
+  } else if (semi === 'fabless') {
+    score += 5;
+    reasons.push('팹리스 반도체 → +5 (약한 순환)');
+  } else if (semi === 'general') {
+    score += 10;
+    reasons.push('반도체 → +10');
+  }
+
+  // Communication/Technology + stable revenue → NOT cyclical (META protect)
+  if (
+    (sec === 'Communication Services' || sec === 'Technology') &&
+    revCoV != null &&
+    revCoV < 0.15 &&
+    semi == null
+  ) {
+    score = Math.max(0, score - 15);
+    reasons.push('Tech/Comm + 매출 안정 → -15 (순환 패턴 아님)');
+  }
+
+  return { type: 'CYCLICAL', score: Math.max(0, score), reasons };
+}
+
+function scoreTurnaround(fund: FundamentalData): TypeCandidateScore {
+  const reasons: string[] = [];
+  let score = 0;
+
+  const hadLoss = hasLossInLastQuarters(fund, 4);
+  const recoveredNow = latestQuarterProfitable(fund);
+  // Sum of last 4 quarters EPS — captures volatile recoveries like BA
+  // (latest still tiny negative, but TTM positive after a big bounce-back).
+  const ttmEpsSum = fund.quarterly
+    .slice(0, 4)
+    .reduce((acc, q) => acc + (q.eps ?? 0), 0);
+  const ttmPositive = ttmEpsSum > 0;
+
+  // Disqualify: no loss history → not a turnaround
+  if (!hadLoss) {
+    return {
+      type: 'TURNAROUND',
+      score: 0,
+      reasons: [],
+      disqualified: true,
+      disqualifyReason: '최근 4분기 적자 이력 없음 — 턴어라운드 아님',
+    };
+  }
+  // Disqualify: persistently losing (latest negative AND TTM negative)
+  // → still SPECULATIVE territory, not a recovery.
+  if (!recoveredNow && !ttmPositive) {
+    return {
+      type: 'TURNAROUND',
+      score: 0,
+      reasons: [],
+      disqualified: true,
+      disqualifyReason: '최근 분기 적자 + TTM EPS 적자 — 회복 미완',
+    };
+  }
+
+  // Loss-→-recovery pattern confirmed
+  score += 25;
+  reasons.push('최근 4분기 중 적자 분기 존재 → +25');
+  if (recoveredNow) {
+    score += 15;
+    reasons.push('최근 분기 흑자전환 → +15');
+  } else {
+    // Latest still negative but TTM positive — partial recovery
+    score += 10;
+    reasons.push('TTM EPS 흑자 (변동성 큰 회복 중) → +10');
+  }
+
+  // Operating income QoQ flipped positive
+  const qs = fund.quarterly.slice(0, 2);
+  if (
+    qs.length === 2 &&
+    qs[0].operatingIncome != null &&
+    qs[1].operatingIncome != null &&
+    qs[0].operatingIncome > 0 &&
+    qs[1].operatingIncome <= 0
+  ) {
+    score += 15;
+    reasons.push('영업이익 QoQ 흑자전환 → +15');
+  }
+
+  // Annual: previous year net loss → this year profit
+  if (fund.annual.length >= 2) {
+    const [thisYr, prevYr] = fund.annual;
+    if (
+      thisYr.netIncome != null &&
+      prevYr.netIncome != null &&
+      thisYr.netIncome > 0 &&
+      prevYr.netIncome < 0
+    ) {
+      score += 20;
+      reasons.push('전년 순손실 → 올해 순이익 → +20');
+    }
+  }
+
+  return { type: 'TURNAROUND', score: Math.max(0, score), reasons };
+}
+
+function scoreAssetPlay(fund: FundamentalData): TypeCandidateScore {
+  const reasons: string[] = [];
+  let score = 0;
+
+  const pbr = fund.pbr;
+  // PBR null → skip (stage 6 — BRK-B bug)
+  if (isNum(pbr) && pbr > 0) {
+    if (pbr < 0.8) {
+      score += 20;
+      reasons.push(`PBR ${pbr.toFixed(2)} (<0.8) → +20`);
+    } else if (pbr < 1.0) {
+      score += 15;
+      reasons.push(`PBR ${pbr.toFixed(2)} (<1.0) → +15`);
+    }
+  }
+
+  // Revenue / assets ratio — low means asset-heavy / holding company
+  const revRecent = fund.quarterly[0]?.revenue;
+  if (isNum(fund.totalAssets) && fund.totalAssets > 0 && isNum(revRecent)) {
+    const annualizedRev = revRecent * 4;
+    const ratio = annualizedRev / fund.totalAssets;
+    if (ratio < 0.1) {
+      score += 20;
+      reasons.push(`매출/총자산 ${ratio.toFixed(3)} → +20 (자산 많음)`);
+    }
+  }
+
+  // Investment-asset heavy
+  if (
+    isNum(fund.investmentAssets) &&
+    isNum(fund.totalAssets) &&
+    fund.totalAssets > 0 &&
+    fund.investmentAssets / fund.totalAssets > 0.5
+  ) {
+    score += 15;
+    reasons.push(
+      `투자자산/총자산 ${(fund.investmentAssets / fund.totalAssets).toFixed(2)} → +15`,
+    );
+  }
+
+  // Operating income / total assets — low → asset-play characteristic
+  const opIncomeTTM = fund.quarterly
+    .slice(0, 4)
+    .map((q) => q.operatingIncome ?? 0)
+    .reduce((a, b) => a + b, 0);
+  if (isNum(fund.totalAssets) && fund.totalAssets > 0 && opIncomeTTM > 0) {
+    const opAssets = opIncomeTTM / fund.totalAssets;
+    if (opAssets < 0.03) {
+      score += 10;
+      reasons.push(`영업이익/총자산 ${(opAssets * 100).toFixed(1)}% → +10`);
+    }
+  }
+
+  // Cash + investments > 50% of market cap
+  if (isNum(fund.cashAndShortTerm) && isNum(fund.marketCap) && fund.marketCap > 0) {
+    const cashRatio =
+      (fund.cashAndShortTerm + (fund.investmentAssets ?? 0)) / fund.marketCap;
+    if (cashRatio > 0.5) {
+      score += 10;
+      reasons.push(`(현금+투자)/시총 ${(cashRatio * 100).toFixed(0)}% → +10`);
+    }
+  }
+
+  // Names (30%)
+  if (hasHoldingsHint(fund)) {
+    score += 15;
+    reasons.push('지주사/Holdings/Berkshire → +15');
+  }
+  if (hasCryptoHoldingHint(fund)) {
+    score += 20;
+    reasons.push('크립토 자산 보유 힌트 → +20');
+  }
+
+  return { type: 'ASSET_PLAY', score: Math.max(0, score), reasons };
+}
+
+function scoreSpeculative(fund: FundamentalData): TypeCandidateScore {
+  const reasons: string[] = [];
+  let score = 0;
+
+  // Last 2 quarters consecutive loss + PSR > 20 (IONQ-type)
+  const consec2Loss =
+    fund.quarterly[0]?.eps != null &&
+    fund.quarterly[0].eps < 0 &&
+    fund.quarterly[1]?.eps != null &&
+    fund.quarterly[1].eps < 0;
+  if (consec2Loss && isNum(fund.psr) && fund.psr > 20) {
+    score += 30;
+    reasons.push(`2분기 연속 적자 + PSR ${fund.psr.toFixed(0)} → +30`);
+  }
+  // 4 consecutive negative quarters — persistent unprofitability (RIVN pattern)
+  const recent4 = fund.quarterly.slice(0, 4);
+  const allFourLoss =
+    recent4.length === 4 && recent4.every((q) => q.eps != null && q.eps < 0);
+  if (allFourLoss) {
+    score += 25;
+    reasons.push('최근 4분기 연속 적자 → +25 (지속 불수익)');
+  }
+
+  // EPS<0 + revenue<$500M + mcap>$5B
+  const revTTM = fund.quarterly
+    .slice(0, 4)
+    .map((q) => q.revenue ?? 0)
+    .reduce((a, b) => a + b, 0);
+  const eps = fund.epsGrowthYoY;
+  if (
+    fund.quarterly[0]?.eps != null &&
+    fund.quarterly[0].eps < 0 &&
+    revTTM > 0 &&
+    revTTM < 500e6 &&
+    isNum(fund.marketCap) &&
+    fund.marketCap > 5e9
+  ) {
+    score += 25;
+    reasons.push(
+      `적자+매출 $${(revTTM / 1e6).toFixed(0)}M+시총 $${(fund.marketCap / 1e9).toFixed(0)}B → +25`,
+    );
+  }
+
+  // Revenue < $100M but market cap > $1B (extreme bubble)
+  if (revTTM > 0 && revTTM < 100e6 && isNum(fund.marketCap) && fund.marketCap > 1e9) {
+    score += 30;
+    reasons.push(
+      `매출 $${(revTTM / 1e6).toFixed(0)}M < $100M 인데 시총 $${(fund.marketCap / 1e9).toFixed(1)}B → +30 (거품)`,
+    );
+  }
+
+  // No dividend + loss + high or negative PER
+  const divY = fund.dividendYield ?? 0;
+  if (
+    divY < 0.001 &&
+    fund.quarterly[0]?.eps != null &&
+    fund.quarterly[0].eps < 0 &&
+    (fund.per == null || fund.per < 0 || fund.per > 100)
+  ) {
+    score += 15;
+    reasons.push('배당0+적자+극단 PER → +15');
+  }
+
+  // PSR > 30 (independent — even if revenue exists)
+  if (isNum(fund.psr) && fund.psr > 30 && score < 50) {
+    score += 15;
+    reasons.push(`PSR ${fund.psr.toFixed(0)} > 30 → +15`);
+  }
+
+  // Names (30%)
+  if (fund.industry && /biotechnology/i.test(fund.industry)) {
+    score += 15;
+    reasons.push(`산업 ${fund.industry} → +15`);
+  }
+  if (hasSpeculativeTheme(fund)) {
+    score += 10;
+    reasons.push('테마(quantum/space/cannabis/blockchain/meme) → +10');
+  }
+
+  // High short interest
+  if (isNum(fund.shortPercentOfFloat) && fund.shortPercentOfFloat > 0.2) {
+    score += 10;
+    reasons.push(`공매도 비율 ${(fund.shortPercentOfFloat * 100).toFixed(0)}% → +10`);
+  }
+  // Well-known meme tickers — these trade on social dynamics, not fundamentals
+  if (/^(GME|AMC|BBBY|HKD|BB)$/.test(fund.ticker)) {
+    score += 30;
+    reasons.push('알려진 밈주식 → +30');
+  }
+
+  // EPS YoY > 0 silenced — speculation isn't gated on growth; some lose & speculate
+  void eps;
+  return { type: 'SPECULATIVE', score: Math.max(0, score), reasons };
+}
+
+// ---------- public API ----------
+
+const TYPES: StockType[] = [
+  'FAST_GROWER',
+  'STALWART',
+  'SLOW_GROWER',
+  'CYCLICAL',
+  'TURNAROUND',
+  'ASSET_PLAY',
+  'SPECULATIVE',
+];
+
+const SCORERS: Record<StockType, (f: FundamentalData) => TypeCandidateScore> = {
+  FAST_GROWER: scoreFastGrower,
+  STALWART: scoreStalwart,
+  SLOW_GROWER: scoreSlowGrower,
+  CYCLICAL: scoreCyclical,
+  TURNAROUND: scoreTurnaround,
+  ASSET_PLAY: scoreAssetPlay,
+  SPECULATIVE: scoreSpeculative,
+};
+
+/** Run all 7 scorers, return candidates sorted desc by score (disqualified at the bottom). */
+export function scoreAllTypes(fund: FundamentalData): TypeCandidateScore[] {
+  const cands = TYPES.map((t) => SCORERS[t](fund));
+  return cands.sort((a, b) => {
+    if (a.disqualified && !b.disqualified) return 1;
+    if (!a.disqualified && b.disqualified) return -1;
+    return b.score - a.score;
+  });
+}
