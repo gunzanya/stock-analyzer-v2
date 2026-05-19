@@ -40,8 +40,6 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
   const f = result.fundamental;
   const cls = result.classification;
   const ind = result.indicators;
-  const primaryLabel = STOCK_TYPE_LABELS[cls.primary];
-
   return (
     <article className="flex flex-col rounded-2xl bg-[#0f172a] border border-[#1e293b] overflow-hidden">
       {/* Header */}
@@ -91,7 +89,7 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
                 : 'bg-indigo-500/15 border-indigo-700/50 text-indigo-300'
             }`}
           >
-            {cls.uncertain ? cls.display : `${primaryLabel.emoji} ${cls.display}`}
+            {cls.display}
           </span>
           {!cls.uncertain && (
             <span className="text-[11px] text-slate-500">

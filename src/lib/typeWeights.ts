@@ -16,7 +16,7 @@ const BLEND_GAP = 20;         // score difference to consider a blend
 const SOLO_GAP = 20;          // score difference for "decisively solo"
 const UNCERTAIN_THRESHOLD = 30; // best score below this → "분류 불확실"
 
-const UNCERTAIN_LABEL = '❓ 분류 불확실 — 데이터 부족 또는 특수 종목';
+const UNCERTAIN_LABEL = '⚠️ 분류 불확실 — 데이터 부족';
 
 function formatLabel(t: TypeCandidateScore['type'], ratio?: number): string {
   const { emoji, ko } = STOCK_TYPE_LABELS[t];
