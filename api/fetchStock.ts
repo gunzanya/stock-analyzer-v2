@@ -1,0 +1,269 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import YahooFinance from 'yahoo-finance2';
+import type { QuoteSummaryResult } from 'yahoo-finance2/modules/quoteSummary-iface';
+import type {
+  FundamentalData,
+  QuarterlyDatum,
+  AnnualDatum,
+} from '../src/lib/types.js';
+
+// v3 requires instantiation
+const yahooFinance = new YahooFinance({
+  suppressNotices: ['yahooSurvey', 'ripHistorical'],
+});
+
+const QUOTE_SUMMARY_MODULES = [
+  'assetProfile',
+  'summaryProfile',
+  'summaryDetail',
+  'defaultKeyStatistics',
+  'financialData',
+  'price',
+  'earningsHistory',
+  'incomeStatementHistoryQuarterly',
+  'incomeStatementHistory',
+  'balanceSheetHistoryQuarterly',
+  'balanceSheetHistory',
+] as const;
+
+type RawNum = number | null | undefined | { raw?: number };
+function num(v: RawNum): number | null {
+  if (v == null) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'object' && typeof v.raw === 'number') {
+    return Number.isFinite(v.raw) ? v.raw : null;
+  }
+  return null;
+}
+
+function dateString(v: unknown): string {
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === 'string') return v.slice(0, 10);
+  if (typeof v === 'number') return new Date(v * 1000).toISOString().slice(0, 10);
+  if (v && typeof v === 'object' && 'raw' in v) {
+    const raw = (v as { raw: unknown }).raw;
+    if (typeof raw === 'number') return new Date(raw * 1000).toISOString().slice(0, 10);
+  }
+  return '';
+}
+
+async function fetchFundamental(ticker: string): Promise<FundamentalData> {
+  const warnings: string[] = [];
+  const upper = ticker.trim().toUpperCase();
+
+  // Run with validateResult:false so Yahoo schema drift doesn't abort the call.
+  // Then cast to the validated shape; missing fields are handled via optional chaining.
+  const summaryRaw = await yahooFinance.quoteSummary(
+    upper,
+    { modules: [...QUOTE_SUMMARY_MODULES] },
+    { validateResult: false },
+  );
+  const summary = summaryRaw as QuoteSummaryResult | null;
+
+  if (!summary) {
+    throw new Error(`Yahoo returned no data for ${upper}`);
+  }
+
+  const price = summary.price;
+  const sd = summary.summaryDetail;
+  const fd = summary.financialData;
+  const ks = summary.defaultKeyStatistics;
+  const ap = summary.assetProfile;
+  const sp = summary.summaryProfile;
+
+  // ----- Income statement (quarterly) -----
+  const isq = summary.incomeStatementHistoryQuarterly?.incomeStatementHistory ?? [];
+  const quarterly: QuarterlyDatum[] = isq.slice(0, 4).map((row) => ({
+    date: dateString(row.endDate),
+    eps: null, // filled below from earningsHistory
+    revenue: num(row.totalRevenue),
+    operatingIncome: num(row.operatingIncome),
+    netIncome: num(row.netIncome),
+  }));
+
+  // Merge quarterly EPS from earningsHistory (most-recent first there too)
+  const eh = summary.earningsHistory?.history ?? [];
+  const ehByDate = new Map<string, number | null>();
+  for (const e of eh) {
+    const d = dateString(e.quarter);
+    if (d) ehByDate.set(d, num(e.epsActual));
+  }
+  for (const q of quarterly) {
+    if (q.date && ehByDate.has(q.date)) q.eps = ehByDate.get(q.date) ?? null;
+  }
+  // If quarterly array is empty but earnings history exists, build from it
+  if (quarterly.length === 0 && eh.length > 0) {
+    for (const e of eh.slice(0, 4)) {
+      quarterly.push({
+        date: dateString(e.quarter),
+        eps: num(e.epsActual),
+        revenue: null,
+        operatingIncome: null,
+        netIncome: null,
+      });
+    }
+  }
+
+  // ----- Income statement (annual) -----
+  const isa = summary.incomeStatementHistory?.incomeStatementHistory ?? [];
+  const annual: AnnualDatum[] = isa.slice(0, 5).map((row) => ({
+    date: dateString(row.endDate),
+    eps: null,
+    revenue: num(row.totalRevenue),
+    netIncome: num(row.netIncome),
+  }));
+
+  // ----- Balance sheet via fundamentalsTimeSeries (Yahoo deprecated the
+  // quoteSummary balanceSheet* submodules in Nov 2024). -----
+  let totalAssets: number | null = null;
+  let totalLiabilities: number | null = null;
+  let cashAndShortTerm: number | null = null;
+  let investmentAssets: number | null = null;
+  try {
+    const period1 = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    const ftsRaw = (await yahooFinance.fundamentalsTimeSeries(
+      upper,
+      { period1, type: 'quarterly', module: 'balance-sheet' },
+      { validateResult: false },
+    )) as Array<Record<string, number | Date | undefined>>;
+    if (Array.isArray(ftsRaw) && ftsRaw.length > 0) {
+      // Latest quarter is last in array
+      const latest = ftsRaw[ftsRaw.length - 1];
+      const pick = (k: string): number | null => {
+        const v = latest[k];
+        return typeof v === 'number' && Number.isFinite(v) ? v : null;
+      };
+      // Yahoo's actual field names (no "quarterly" prefix despite their docs)
+      totalAssets = pick('totalAssets');
+      totalLiabilities =
+        pick('totalLiabilitiesNetMinorityInterest') ?? pick('totalLiab');
+      const combinedCash = pick('cashCashEquivalentsAndShortTermInvestments');
+      if (combinedCash != null) {
+        cashAndShortTerm = combinedCash;
+      } else {
+        const sum =
+          (pick('cashAndCashEquivalents') ?? 0) + (pick('otherShortTermInvestments') ?? 0);
+        cashAndShortTerm = sum > 0 ? sum : null;
+      }
+      const longTermInv =
+        pick('investmentsAndAdvances') ?? pick('investmentinFinancialAssets') ?? 0;
+      const longTermInv2 = pick('longTermInvestments') ?? 0;
+      const invSum = longTermInv + longTermInv2;
+      investmentAssets = invSum > 0 ? invSum : null;
+    }
+  } catch (err) {
+    warnings.push(`fundamentalsTimeSeries(balance-sheet) failed: ${(err as Error).message}`);
+  }
+  const totalEquity =
+    totalAssets != null && totalLiabilities != null ? totalAssets - totalLiabilities : null;
+
+  // ----- Valuation / profitability -----
+  let pbr = num(ks?.priceToBook);
+  // BRK-B and similar return absurdly small PBR (0.0009 etc.) — drop & flag.
+  if (pbr != null && pbr > 0 && pbr < 0.05) {
+    warnings.push(`PBR=${pbr} dropped (likely data bug)`);
+    pbr = null;
+  }
+  if (pbr === 0) {
+    warnings.push('PBR=0 (likely data bug)');
+    pbr = null;
+  }
+  const per = num(sd?.trailingPE);
+  const forwardPER = num(sd?.forwardPE) ?? num(ks?.forwardPE);
+  const psr = num(sd?.priceToSalesTrailing12Months);
+  const peg = num(ks?.pegRatio);
+  const evToEbitda = num(ks?.enterpriseToEbitda);
+  const roe = num(fd?.returnOnEquity);
+  const operatingMargin = num(fd?.operatingMargins);
+  const netMargin = num(fd?.profitMargins);
+  const grossMargin = num(fd?.grossMargins);
+
+  // ----- Growth -----
+  const epsGrowthYoY = num(fd?.earningsGrowth);
+  const revenueGrowthYoY = num(fd?.revenueGrowth);
+  const epsGrowth5y = null; // not always available; defer to derived calc
+
+  // ----- Dividend -----
+  const dividendYield = num(sd?.dividendYield) ?? num(sd?.trailingAnnualDividendYield);
+  const payoutRatio = num(sd?.payoutRatio);
+
+  // ----- Balance sheet ratios -----
+  const debtToEquity = num(fd?.debtToEquity);
+
+  // ----- Market cap (in quote's currency; we don't FX-normalize here) -----
+  const marketCap = num(price?.marketCap) ?? num(sd?.marketCap);
+  const currency = (price?.currency ?? null) as string | null;
+
+  // ----- Short interest -----
+  const shortPercentOfFloat = num(ks?.shortPercentOfFloat);
+  const floatShares = num(ks?.floatShares);
+
+  return {
+    ticker: upper,
+    name: price?.longName ?? price?.shortName ?? upper,
+    exchange: (price?.exchangeName ?? null) as string | null,
+    currency,
+    sector: (ap?.sector ?? sp?.sector ?? null) as string | null,
+    industry: (ap?.industry ?? sp?.industry ?? null) as string | null,
+
+    marketCap,
+    price: num(price?.regularMarketPrice),
+    pbr,
+    per,
+    forwardPER,
+    psr,
+    peg,
+    evToEbitda,
+
+    roe,
+    operatingMargin,
+    netMargin,
+    grossMargin,
+
+    epsGrowthYoY,
+    revenueGrowthYoY,
+    epsGrowth5y,
+
+    dividendYield,
+    payoutRatio,
+    dividendGrowthYears: null,
+
+    totalAssets,
+    totalLiabilities,
+    totalEquity,
+    cashAndShortTerm,
+    investmentAssets,
+    debtToEquity,
+
+    quarterly,
+    annual,
+
+    shortPercentOfFloat,
+    floatShares,
+
+    fetchedAt: new Date().toISOString(),
+    warnings,
+  };
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const ticker =
+    (req.query.ticker as string | undefined) ??
+    (req.query.symbol as string | undefined);
+  if (!ticker) {
+    return res.status(400).json({ error: 'missing ?ticker=' });
+  }
+  try {
+    const data = await fetchFundamental(ticker);
+    res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
+    return res.status(200).json(data);
+  } catch (err) {
+    return res.status(502).json({
+      error: 'fetch_failed',
+      message: (err as Error).message,
+      ticker,
+    });
+  }
+}
+
+export { fetchFundamental };
