@@ -183,6 +183,18 @@ function scoreFastGrower(fund: FundamentalData): TypeCandidateScore {
     reasons.push(`메가캡 ${fund.sector} → -10 (구조적 고성장 아님)`);
   }
 
+  // Materials miners — earnings explode when commodity prices spike (gold,
+  // silver, copper, steel rallies), but that's a cyclical pattern, not
+  // structural growth. Demote so they classify as CYCLICAL (FSM, ARIS, HBM).
+  if (
+    fund.sector === 'Basic Materials' &&
+    fund.industry &&
+    /mining|gold|silver|copper|aluminum|steel|metals/i.test(fund.industry)
+  ) {
+    score -= 15;
+    reasons.push(`Materials/Mining (${fund.industry}) → -15 (상품가격 사이클)`);
+  }
+
   // Caps the score in case of insanely high one-shot EPS (stage 6 defense)
   if (isNum(eps) && eps > 10) {
     score = Math.min(score, 50);
@@ -391,7 +403,7 @@ function scoreCyclical(fund: FundamentalData): TypeCandidateScore {
     score += 10;
     reasons.push(`섹터 Consumer Cyclical → +10`);
   }
-  if (/auto|steel|chemical|airline|shipping|construction|aluminum|copper|oil|gas|petroleum|mining|metals|capital markets/i.test(ind)) {
+  if (/auto|steel|chemical|airline|shipping|construction|aluminum|copper|oil|gas|petroleum|mining|metals|gold|silver|capital markets/i.test(ind)) {
     score += 15;
     reasons.push(`산업 ${ind} → +15`);
   }
