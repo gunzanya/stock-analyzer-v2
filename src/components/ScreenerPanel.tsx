@@ -5,6 +5,16 @@ import { LEVEL_KO, SCORE_TEXT, scoreLevel } from './scoreColors.js';
 
 type Row = ScreenerSummary;
 type Status = 'idle' | 'running' | 'done' | 'error';
+type PoolFilter = 'all' | 'large_cap' | 'small_mid' | 'tech';
+type SortKey = 'total' | 'entry';
+type SortDir = 'asc' | 'desc';
+
+const FILTER_LABELS: Record<PoolFilter, string> = {
+  all: '전체',
+  large_cap: '대형주만 ($10B+)',
+  small_mid: '중소형주',
+  tech: '테크',
+};
 
 interface Props {
   favorites: string[];
@@ -19,7 +29,19 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [strongOnly, setStrongOnly] = useState(false);
   const [hideSafetyTriggered, setHideSafetyTriggered] = useState(false);
+  const [filter, setFilter] = useState<PoolFilter>('all');
+  const [sortKey, setSortKey] = useState<SortKey>('total');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const esRef = useRef<EventSource | null>(null);
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  }
 
   useEffect(() => {
     return () => {
@@ -34,7 +56,9 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
     setErrorMsg(null);
     setStatus('running');
 
-    const es = new EventSource(`/api/screen?n=20&_=${Date.now()}`);
+    const es = new EventSource(
+      `/api/screen?n=20&filter=${filter}&_=${Date.now()}`,
+    );
     esRef.current = es;
 
     es.addEventListener('start', (e) => {
@@ -76,11 +100,14 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
     setStatus('done');
   }
 
-  // Sort by totalScore desc (failed rows at the bottom)
+  // Failed rows always sink to the bottom; otherwise sort by the selected
+  // column in the chosen direction.
   const sorted = [...rows].sort((a, b) => {
     if (!a.ok && b.ok) return 1;
     if (a.ok && !b.ok) return -1;
-    return (b.totalScore ?? -1) - (a.totalScore ?? -1);
+    const aVal = sortKey === 'total' ? (a.totalScore ?? -1) : (a.entryScore ?? -1);
+    const bVal = sortKey === 'total' ? (b.totalScore ?? -1) : (b.entryScore ?? -1);
+    return sortDir === 'desc' ? bVal - aVal : aVal - bVal;
   });
 
   const filtered = sorted.filter((r) => {
@@ -104,10 +131,23 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
               🎲 무작위 스크리너
             </h2>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              미국 주요 종목 풀에서 20개를 무작위로 뽑아 실시간 분석
+              Yahoo Finance 스크리너에서 매번 새로운 20종목을 뽑아 실시간 분석
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 items-center">
+            <select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value as PoolFilter)}
+              disabled={status === 'running'}
+              className="min-h-[40px] px-3 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+              aria-label="종목 풀 필터"
+            >
+              {(Object.keys(FILTER_LABELS) as PoolFilter[]).map((f) => (
+                <option key={f} value={f}>
+                  {FILTER_LABELS[f]}
+                </option>
+              ))}
+            </select>
             {status === 'running' ? (
               <button
                 type="button"
@@ -176,7 +216,7 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
           <p className="text-4xl mb-3">🎲</p>
           <p className="text-sm text-slate-300 mb-1">스캔 시작을 눌러주세요</p>
           <p className="text-[11px]">
-            랜덤 20개 종목을 분석해 TotalScore 순으로 정렬합니다
+            Yahoo Finance 스크리너에서 20종목을 무작위로 뽑아 분석합니다
           </p>
         </div>
       )}
@@ -190,8 +230,18 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
                 <tr>
                   <th className="text-left px-3 py-2 font-medium">티커</th>
                   <th className="text-left px-3 py-2 font-medium">유형</th>
-                  <th className="text-right px-3 py-2 font-medium">Total</th>
-                  <th className="text-right px-3 py-2 font-medium">Entry</th>
+                  <SortHeader
+                    label="Total"
+                    active={sortKey === 'total'}
+                    dir={sortDir}
+                    onClick={() => toggleSort('total')}
+                  />
+                  <SortHeader
+                    label="Entry"
+                    active={sortKey === 'entry'}
+                    dir={sortDir}
+                    onClick={() => toggleSort('entry')}
+                  />
                   <th className="text-center px-3 py-2 font-medium">안전</th>
                   <th className="text-center px-3 py-2 font-medium w-12"></th>
                 </tr>
@@ -230,6 +280,35 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
         </div>
       )}
     </div>
+  );
+}
+
+function SortHeader({
+  label,
+  active,
+  dir,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  dir: SortDir;
+  onClick: () => void;
+}) {
+  const arrow = active ? (dir === 'desc' ? '▼' : '▲') : '↕';
+  return (
+    <th className="text-right px-3 py-2 font-medium">
+      <button
+        type="button"
+        onClick={onClick}
+        className={
+          'inline-flex items-center gap-1 hover:text-slate-200 transition-colors ' +
+          (active ? 'text-indigo-300' : 'text-slate-400')
+        }
+      >
+        {label}
+        <span className="text-[9px]">{arrow}</span>
+      </button>
+    </th>
   );
 }
 

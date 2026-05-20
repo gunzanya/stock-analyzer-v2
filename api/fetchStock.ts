@@ -455,4 +455,91 @@ async function fetchUsdKrwRate(): Promise<number | null> {
   return null;
 }
 
-export { fetchFundamental, fetchPriceHistory, fetchUsdKrwRate };
+// ---- Dynamic pool builder (Yahoo screener) -----------------------------
+
+export type ScreenerFilter = 'all' | 'large_cap' | 'small_mid' | 'tech';
+
+interface ScreenerHit {
+  symbol: string;
+  marketCap: number | null;
+}
+
+type ScrId = Parameters<typeof yahooFinance.screener>[0] extends infer T
+  ? T extends string
+    ? T
+    : never
+  : never;
+
+// Map our filter modes to Yahoo's predefined scrIds. Multiple scrIds per
+// mode get merged + deduped to widen the pool beyond a single screen's
+// ~25 results.
+const SCR_IDS: Record<ScreenerFilter, ScrId[]> = {
+  all: ['most_actives', 'day_gainers', 'undervalued_large_caps', 'small_cap_gainers'],
+  large_cap: ['undervalued_large_caps', 'portfolio_anchors', 'most_actives'],
+  small_mid: ['small_cap_gainers', 'aggressive_small_caps', 'undervalued_growth_stocks'],
+  tech: ['growth_technology_stocks'],
+};
+
+/** Pull tickers from Yahoo's predefined screeners, merged + deduped.
+ *  Optionally enforces a min/max market cap. Returns plain ticker symbols. */
+async function fetchScreenerPool(
+  filter: ScreenerFilter,
+  opts: { minMarketCap?: number; maxMarketCap?: number; count?: number } = {},
+): Promise<string[]> {
+  const scrIds = SCR_IDS[filter];
+  const count = opts.count ?? 100;
+  const results = await Promise.all(
+    scrIds.map(async (scrId) => {
+      try {
+        // Yahoo's screener payload schema sometimes drifts; the data is
+        // fine but strict validation rejects it. Disable validation here.
+        const r = (await yahooFinance.screener(
+          { scrIds: scrId, count },
+          undefined,
+          { validateResult: false },
+        )) as { quotes?: { symbol?: string; marketCap?: number | null }[] };
+        const qs = r.quotes ?? [];
+        return qs
+          .filter((q): q is { symbol: string; marketCap?: number | null } =>
+            typeof q.symbol === 'string' && q.symbol.length > 0,
+          )
+          .map((q) => ({
+            symbol: q.symbol,
+            marketCap: typeof q.marketCap === 'number' ? q.marketCap : null,
+          })) as ScreenerHit[];
+      } catch {
+        return [] as ScreenerHit[];
+      }
+    }),
+  );
+
+  // Dedupe by symbol, keep the first marketCap we see.
+  const seen = new Map<string, ScreenerHit>();
+  for (const list of results) {
+    for (const hit of list) {
+      if (!hit.symbol) continue;
+      if (!seen.has(hit.symbol)) seen.set(hit.symbol, hit);
+    }
+  }
+
+  const filtered = Array.from(seen.values()).filter((h) => {
+    if (opts.minMarketCap != null) {
+      if (h.marketCap == null || h.marketCap < opts.minMarketCap) return false;
+    }
+    if (opts.maxMarketCap != null) {
+      if (h.marketCap == null || h.marketCap >= opts.maxMarketCap) return false;
+    }
+    // Skip preferreds / warrants — Yahoo sometimes leaks these into screens
+    if (/[.-]P[A-Z]?$|\.WS$|\.W$|^_/.test(h.symbol)) return false;
+    return true;
+  });
+
+  return filtered.map((h) => h.symbol);
+}
+
+export {
+  fetchFundamental,
+  fetchPriceHistory,
+  fetchUsdKrwRate,
+  fetchScreenerPool,
+};

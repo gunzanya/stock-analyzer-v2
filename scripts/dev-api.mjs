@@ -7,7 +7,36 @@ import { createServer } from 'node:http';
 import { analyzeOne } from '../api/analyze.ts';
 import { fetchFundamental } from '../api/fetchStock.ts';
 import { runScreener } from '../api/screen.ts';
-import { pickRandom, SCREENER_POOL } from '../src/lib/screenerPool.ts';
+import { fetchScreenerPool } from '../api/fetchStock.ts';
+import { SCREENER_POOL } from '../src/lib/screenerPool.ts';
+
+const FILTERS = new Set(['all', 'large_cap', 'small_mid', 'tech']);
+
+function sampleFrom(pool, n) {
+  const copy = [...pool];
+  const k = Math.min(n, copy.length);
+  for (let i = 0; i < k; i++) {
+    const j = i + Math.floor(Math.random() * (copy.length - i));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, k);
+}
+
+async function buildPool(filter) {
+  const opts =
+    filter === 'large_cap'
+      ? { minMarketCap: 10e9 }
+      : filter === 'small_mid'
+        ? { maxMarketCap: 10e9 }
+        : {};
+  try {
+    const dynamic = await fetchScreenerPool(filter, opts);
+    if (dynamic.length >= 20) return dynamic;
+    return Array.from(new Set([...dynamic, ...SCREENER_POOL]));
+  } catch {
+    return [...SCREENER_POOL];
+  }
+}
 
 const PORT = Number(process.env.PORT ?? 3001);
 
@@ -38,16 +67,22 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/api/screen') {
       const nRaw = url.searchParams.get('n');
       const n = Math.max(1, Math.min(40, Number(nRaw ?? 20) || 20));
+      const filterRaw = url.searchParams.get('filter');
+      const filter = FILTERS.has(filterRaw) ? filterRaw : 'all';
       const tickersParam = url.searchParams.get('tickers');
-      const tickers = tickersParam
-        ? Array.from(
-            new Set(
-              tickersParam.split(',').map((t) => t.trim().toUpperCase()).filter(Boolean),
-            ),
-          )
-            .filter((t) => SCREENER_POOL.includes(t))
-            .slice(0, 40)
-        : pickRandom(n);
+      let tickers;
+      if (tickersParam) {
+        tickers = Array.from(
+          new Set(
+            tickersParam.split(',').map((t) => t.trim().toUpperCase()).filter(Boolean),
+          ),
+        )
+          .filter((t) => SCREENER_POOL.includes(t))
+          .slice(0, 40);
+      } else {
+        const pool = await buildPool(filter);
+        tickers = sampleFrom(pool, n);
+      }
       if (tickers.length === 0) return json(400, { error: 'no_tickers' });
 
       res.writeHead(200, {
