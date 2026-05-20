@@ -1,6 +1,12 @@
-import { useState } from 'react';
-import type { AnalysisResult } from '../lib/types.js';
+import { useMemo, useState } from 'react';
+import type {
+  AnalysisResult,
+  ClassificationResult,
+  StockType,
+} from '../lib/types.js';
 import { STOCK_TYPE_LABELS } from '../lib/types.js';
+import { computeTotalScore } from '../lib/totalScore.js';
+import { getTypeInsight } from '../lib/typeInsights.js';
 import { TotalScoreCard } from './TotalScoreCard.js';
 import { CanslimBars } from './CanslimBars.js';
 import { SafetyBanner } from './SafetyBanner.js';
@@ -8,6 +14,16 @@ import { StrategyCard } from './StrategyCard.js';
 import { PriceChart } from './PriceChart.js';
 import { TypeInsightCard } from './TypeInsightCard.js';
 import { RiskFactorsCard } from './RiskFactorsCard.js';
+
+const STOCK_TYPE_ORDER: StockType[] = [
+  'FAST_GROWER',
+  'STALWART',
+  'SLOW_GROWER',
+  'CYCLICAL',
+  'TURNAROUND',
+  'ASSET_PLAY',
+  'SPECULATIVE',
+];
 
 function formatPct(v: number | null | undefined, digits = 1): string {
   if (v == null || !Number.isFinite(v)) return '—';
@@ -37,9 +53,44 @@ interface Props {
 
 export function StockCard({ result, isFavorite = false, onToggleFavorite }: Props) {
   const [open, setOpen] = useState(false);
+  const [override, setOverride] = useState<StockType | null>(null);
   const f = result.fundamental;
   const cls = result.classification;
   const ind = result.indicators;
+
+  const effectiveType: StockType = override ?? cls.primary;
+  const isOverride = override !== null;
+
+  const { totalScore, typeInsight } = useMemo(() => {
+    if (!isOverride) {
+      return {
+        totalScore: result.totalScore,
+        typeInsight: result.typeInsight,
+      };
+    }
+    const syntheticCls: ClassificationResult = {
+      primary: override!,
+      primaryRatio: 100,
+      secondary: null,
+      secondaryRatio: 0,
+      confidence: 100,
+      candidates: cls.candidates,
+      display: '',
+      uncertain: false,
+    };
+    return {
+      totalScore: computeTotalScore(result.canslim, syntheticCls),
+      typeInsight: getTypeInsight(override!),
+    };
+  }, [
+    isOverride,
+    override,
+    result.canslim,
+    result.totalScore,
+    result.typeInsight,
+    cls.candidates,
+  ]);
+
   return (
     <article className="flex flex-col rounded-2xl bg-[#0f172a] border border-[#1e293b] overflow-hidden">
       {/* Header */}
@@ -81,26 +132,81 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
             <p className="text-[10px] text-slate-500">{f.currency ?? 'USD'}</p>
           </div>
         </div>
-        <div className="mt-3 flex items-center gap-2 flex-wrap">
-          <span
-            className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${
-              cls.uncertain
-                ? 'bg-slate-700/40 border-slate-600 text-slate-300'
-                : 'bg-indigo-500/15 border-indigo-700/50 text-indigo-300'
-            }`}
-          >
-            {cls.display}
-          </span>
-          {!cls.uncertain && (
-            <span className="text-[11px] text-slate-500">
-              신뢰도 {cls.confidence}%
-            </span>
-          )}
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <label
+              htmlFor={`type-select-${f.ticker}`}
+              className="text-[10px] uppercase tracking-wider font-bold text-slate-500"
+            >
+              유형 직접 선택
+            </label>
+            <select
+              id={`type-select-${f.ticker}`}
+              value={override ?? ''}
+              onChange={(e) =>
+                setOverride(
+                  e.target.value === '' ? null : (e.target.value as StockType),
+                )
+              }
+              className="min-h-[32px] px-2 py-1 rounded-md bg-[#0a0f1a] border border-[#1e293b] text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            >
+              <option value="">🤖 AI 추천</option>
+              {STOCK_TYPE_ORDER.map((t) => {
+                const { emoji, ko } = STOCK_TYPE_LABELS[t];
+                return (
+                  <option key={t} value={t}>
+                    {emoji} {ko}
+                  </option>
+                );
+              })}
+            </select>
+            {isOverride && (
+              <button
+                type="button"
+                onClick={() => setOverride(null)}
+                className="text-[11px] text-slate-400 hover:text-slate-200 underline underline-offset-2"
+              >
+                AI 추천으로 복원
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {isOverride ? (
+              <>
+                <span className="px-2.5 py-1 rounded-full text-xs font-semibold border bg-amber-500/15 border-amber-700/50 text-amber-200">
+                  ✋ 수동 선택: {STOCK_TYPE_LABELS[override!].emoji}{' '}
+                  {STOCK_TYPE_LABELS[override!].ko}
+                </span>
+                <span className="px-2 py-1 rounded-full text-[11px] border border-slate-700 bg-slate-800/40 text-slate-400">
+                  🤖 AI 추천: {cls.display}
+                </span>
+              </>
+            ) : (
+              <>
+                <span
+                  className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                    cls.uncertain
+                      ? 'bg-slate-700/40 border-slate-600 text-slate-300'
+                      : 'bg-indigo-500/15 border-indigo-700/50 text-indigo-300'
+                  }`}
+                >
+                  🤖 AI 추천: {cls.display}
+                </span>
+                {!cls.uncertain && (
+                  <span className="text-[11px] text-slate-500">
+                    신뢰도 {cls.confidence}%
+                  </span>
+                )}
+              </>
+            )}
+          </div>
         </div>
-        {cls.uncertain && (
+        {cls.uncertain && !isOverride && (
           <p className="mt-2 text-[11px] text-slate-500 leading-relaxed">
             7개 유형 모두 30점 미만. 다른 카드의 점수·인사이트·전략은 신뢰하지
-            마세요. 데이터 경고를 확인하거나 정확한 티커로 재시도하세요.
+            마세요. 데이터 경고를 확인하거나 정확한 티커로 재시도하세요. 또는
+            위 드롭다운에서 유형을 직접 선택해 점수·인사이트를 재계산할 수
+            있습니다.
           </p>
         )}
       </header>
@@ -114,7 +220,7 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
 
       {/* Score row */}
       <div className="px-5 pt-4">
-        <TotalScoreCard total={result.totalScore} entry={result.entryScore} />
+        <TotalScoreCard total={totalScore} entry={result.entryScore} />
       </div>
 
       {/* Strategy */}
@@ -134,12 +240,12 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
 
       {/* CANSLIM */}
       <div className="px-5 pt-4">
-        <CanslimBars canslim={result.canslim} primaryType={cls.primary} />
+        <CanslimBars canslim={result.canslim} primaryType={effectiveType} />
       </div>
 
       {/* Type insight */}
       <div className="px-5 pt-4">
-        <TypeInsightCard insight={result.typeInsight} />
+        <TypeInsightCard insight={typeInsight} />
       </div>
 
       {/* Risk factors */}
