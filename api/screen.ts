@@ -2,28 +2,10 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { analyzeOne } from './analyze.js';
 import { pickRandom, SCREENER_POOL } from '../src/lib/screenerPool.js';
 import type { AnalysisResult } from '../src/lib/types.js';
+import type { ScreenerSummary } from '../src/lib/screenerTypes.js';
 
 const DEFAULT_N = 20;
 const CONCURRENCY = 4;
-
-export interface ScreenerSummary {
-  ticker: string;
-  ok: boolean;
-  error?: string;
-  // Slim payload — full AnalysisResult would balloon the stream. The screener
-  // table only needs scores + classification + safety flag, then re-fetches
-  // the full result when the user clicks into a row.
-  primary?: AnalysisResult['classification']['primary'];
-  display?: string;
-  uncertain?: boolean;
-  totalScore?: number;
-  totalLevel?: AnalysisResult['totalScore']['level'];
-  entryScore?: number;
-  entryLevel?: AnalysisResult['entryScore']['level'];
-  safetyTriggered?: boolean;
-  name?: string;
-  price?: number | null;
-}
 
 function toSummary(ticker: string, r: AnalysisResult): ScreenerSummary {
   const latest = r.priceBars[0]?.close ?? null;

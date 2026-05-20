@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ScreenerSummary } from '../../api/screen.js';
+import type { ScreenerSummary } from '../lib/screenerTypes.js';
 import { STOCK_TYPE_LABELS } from '../lib/types.js';
 import { LEVEL_KO, SCORE_TEXT, scoreLevel } from './scoreColors.js';
 

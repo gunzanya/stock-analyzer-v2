@@ -1,5 +1,4 @@
-import type React from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { fetchAnalysis } from './lib/api.js';
 import type { AnalysisResult } from './lib/types.js';
 import { loadFavorites, saveFavorites } from './lib/favorites.js';
@@ -192,7 +191,7 @@ function TabButton({
 }: {
   active: boolean;
   onClick: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <button
