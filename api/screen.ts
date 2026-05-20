@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { analyzeOne } from './analyze.js';
 import { fetchScreenerPool, type ScreenerFilter } from './fetchStock.js';
 import { SCREENER_POOL } from '../src/lib/screenerPool.js';
+import { SP500 } from '../src/lib/sp500.js';
 import type { AnalysisResult } from '../src/lib/types.js';
 import type { ScreenerSummary } from '../src/lib/screenerTypes.js';
 
@@ -15,7 +16,19 @@ const FILTERS: ReadonlySet<ScreenerFilter> = new Set([
   'large_cap',
   'small_mid',
   'tech',
+  'breakout',
 ]);
+
+// Whether to augment the Yahoo dynamic pool with the static S&P 500 list.
+// S&P 500 are all large caps, so adding them to small_mid / tech would
+// dilute those filters' intent.
+const MERGE_SP500: Record<ScreenerFilter, boolean> = {
+  all: true,
+  breakout: true,
+  large_cap: true,
+  small_mid: false,
+  tech: false,
+};
 
 function isFilter(v: string | undefined): v is ScreenerFilter {
   return v != null && FILTERS.has(v as ScreenerFilter);
@@ -32,8 +45,10 @@ function sampleFrom(pool: readonly string[], n: number): string[] {
   return copy.slice(0, k);
 }
 
-/** Build the candidate pool: dynamic via Yahoo screener, with the hardcoded
- *  SCREENER_POOL as a last-resort fallback if Yahoo is unreachable. */
+/** Build the candidate pool: Yahoo dynamic screener union'd with the
+ *  static S&P 500 list (for size-agnostic filters). Falls back to the
+ *  curated SCREENER_POOL if Yahoo is unreachable so the screener still
+ *  works offline. */
 async function buildPool(filter: ScreenerFilter): Promise<string[]> {
   const opts =
     filter === 'large_cap'
@@ -41,13 +56,15 @@ async function buildPool(filter: ScreenerFilter): Promise<string[]> {
       : filter === 'small_mid'
         ? { maxMarketCap: 10e9 }
         : {};
+  const staticAugment = MERGE_SP500[filter] ? SP500 : [];
   try {
     const dynamic = await fetchScreenerPool(filter, opts);
-    if (dynamic.length >= 20) return dynamic;
-    // Sparse result — merge with fallback so the user always gets ~20 picks.
-    return Array.from(new Set([...dynamic, ...SCREENER_POOL]));
+    const merged = Array.from(new Set([...dynamic, ...staticAugment]));
+    if (merged.length >= 20) return merged;
+    // Extremely sparse — top up with the curated fallback list too.
+    return Array.from(new Set([...merged, ...SCREENER_POOL]));
   } catch {
-    return [...SCREENER_POOL];
+    return Array.from(new Set([...staticAugment, ...SCREENER_POOL]));
   }
 }
 

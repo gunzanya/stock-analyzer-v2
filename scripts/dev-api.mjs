@@ -9,8 +9,16 @@ import { fetchFundamental } from '../api/fetchStock.ts';
 import { runScreener } from '../api/screen.ts';
 import { fetchScreenerPool } from '../api/fetchStock.ts';
 import { SCREENER_POOL } from '../src/lib/screenerPool.ts';
+import { SP500 } from '../src/lib/sp500.ts';
 
-const FILTERS = new Set(['all', 'large_cap', 'small_mid', 'tech']);
+const FILTERS = new Set(['all', 'large_cap', 'small_mid', 'tech', 'breakout']);
+const MERGE_SP500 = {
+  all: true,
+  breakout: true,
+  large_cap: true,
+  small_mid: false,
+  tech: false,
+};
 
 function sampleFrom(pool, n) {
   const copy = [...pool];
@@ -29,12 +37,14 @@ async function buildPool(filter) {
       : filter === 'small_mid'
         ? { maxMarketCap: 10e9 }
         : {};
+  const staticAugment = MERGE_SP500[filter] ? SP500 : [];
   try {
     const dynamic = await fetchScreenerPool(filter, opts);
-    if (dynamic.length >= 20) return dynamic;
-    return Array.from(new Set([...dynamic, ...SCREENER_POOL]));
+    const merged = Array.from(new Set([...dynamic, ...staticAugment]));
+    if (merged.length >= 20) return merged;
+    return Array.from(new Set([...merged, ...SCREENER_POOL]));
   } catch {
-    return [...SCREENER_POOL];
+    return Array.from(new Set([...staticAugment, ...SCREENER_POOL]));
   }
 }
 
