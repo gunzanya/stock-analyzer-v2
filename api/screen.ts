@@ -6,7 +6,9 @@ import type { AnalysisResult } from '../src/lib/types.js';
 import type { ScreenerSummary } from '../src/lib/screenerTypes.js';
 
 const DEFAULT_N = 20;
-const CONCURRENCY = 4;
+// 6 parallel workers keeps n=100 under the 60s Vercel function budget.
+// (n=100 × ~2.5s/ticker / 6 ≈ 42s with headroom for slow tickers.)
+const CONCURRENCY = 6;
 
 const FILTERS: ReadonlySet<ScreenerFilter> = new Set([
   'all',
@@ -115,7 +117,7 @@ export async function runScreener(
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const nRaw = req.query.n;
-  const n = Math.max(1, Math.min(40, Number(nRaw ?? DEFAULT_N) || DEFAULT_N));
+  const n = Math.max(1, Math.min(100, Number(nRaw ?? DEFAULT_N) || DEFAULT_N));
   const filterRaw = req.query.filter as string | undefined;
   const filter: ScreenerFilter = isFilter(filterRaw) ? filterRaw : 'all';
 

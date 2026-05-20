@@ -66,7 +66,7 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname === '/api/screen') {
       const nRaw = url.searchParams.get('n');
-      const n = Math.max(1, Math.min(40, Number(nRaw ?? 20) || 20));
+      const n = Math.max(1, Math.min(100, Number(nRaw ?? 20) || 20));
       const filterRaw = url.searchParams.get('filter');
       const filter = FILTERS.has(filterRaw) ? filterRaw : 'all';
       const tickersParam = url.searchParams.get('tickers');

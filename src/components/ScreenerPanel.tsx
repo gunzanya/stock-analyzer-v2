@@ -30,6 +30,7 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
   const [strongOnly, setStrongOnly] = useState(false);
   const [hideSafetyTriggered, setHideSafetyTriggered] = useState(false);
   const [filter, setFilter] = useState<PoolFilter>('all');
+  const [scanCount, setScanCount] = useState<20 | 50 | 100>(20);
   const [sortKey, setSortKey] = useState<SortKey>('total');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const esRef = useRef<EventSource | null>(null);
@@ -51,13 +52,13 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
 
   function startScan() {
     esRef.current?.close();
-    setRows([]);
+    // Cumulative mode: keep existing rows; new results upsert by ticker.
     setProgress({ completed: 0, total: 0 });
     setErrorMsg(null);
     setStatus('running');
 
     const es = new EventSource(
-      `/api/screen?n=20&filter=${filter}&_=${Date.now()}`,
+      `/api/screen?n=${scanCount}&filter=${filter}&_=${Date.now()}`,
     );
     esRef.current = es;
 
@@ -67,7 +68,15 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
     });
     es.addEventListener('result', (e) => {
       const row = JSON.parse((e as MessageEvent).data) as Row;
-      setRows((prev) => [...prev, row]);
+      setRows((prev) => {
+        const idx = prev.findIndex((r) => r.ticker === row.ticker);
+        if (idx >= 0) {
+          const next = prev.slice();
+          next[idx] = row;
+          return next;
+        }
+        return [...prev, row];
+      });
     });
     es.addEventListener('progress', (e) => {
       const data = JSON.parse((e as MessageEvent).data) as {
@@ -98,6 +107,15 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
     esRef.current?.close();
     esRef.current = null;
     setStatus('done');
+  }
+
+  function clearRows() {
+    esRef.current?.close();
+    esRef.current = null;
+    setRows([]);
+    setProgress({ completed: 0, total: 0 });
+    setStatus('idle');
+    setErrorMsg(null);
   }
 
   // Failed rows always sink to the bottom; otherwise sort by the selected
@@ -131,7 +149,7 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
               🎲 무작위 스크리너
             </h2>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Yahoo Finance 스크리너에서 매번 새로운 20종목을 뽑아 실시간 분석
+              Yahoo Finance 스크리너에서 뽑아 실시간 분석 · 추가 스캔으로 결과 누적
             </p>
           </div>
           <div className="flex flex-wrap gap-2 items-center">
@@ -148,6 +166,19 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
                 </option>
               ))}
             </select>
+            <select
+              value={scanCount}
+              onChange={(e) =>
+                setScanCount(Number(e.target.value) as 20 | 50 | 100)
+              }
+              disabled={status === 'running'}
+              className="min-h-[40px] px-3 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+              aria-label="스캔 종목 수"
+            >
+              <option value={20}>20개</option>
+              <option value={50}>50개</option>
+              <option value={100}>100개</option>
+            </select>
             {status === 'running' ? (
               <button
                 type="button"
@@ -162,7 +193,16 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
                 onClick={startScan}
                 className="min-h-[40px] px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold active:bg-indigo-700 transition-colors"
               >
-                {status === 'idle' ? '🎯 스캔 시작' : '🔄 다시 스캔'}
+                {rows.length === 0 ? '🎯 스캔 시작' : '➕ 추가 스캔'}
+              </button>
+            )}
+            {rows.length > 0 && status !== 'running' && (
+              <button
+                type="button"
+                onClick={clearRows}
+                className="min-h-[40px] px-3 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-slate-300 hover:text-slate-100 hover:bg-[#1e293b] text-sm font-medium transition-colors"
+              >
+                🗑 초기화
               </button>
             )}
           </div>
@@ -188,6 +228,9 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
 
         {rows.length > 0 && (
           <div className="flex flex-wrap items-center gap-3 mt-4 text-xs">
+            <span className="text-slate-500">
+              누적 <span className="text-slate-300 font-mono">{rows.length}</span>종목
+            </span>
             <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -216,7 +259,7 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
           <p className="text-4xl mb-3">🎲</p>
           <p className="text-sm text-slate-300 mb-1">스캔 시작을 눌러주세요</p>
           <p className="text-[11px]">
-            Yahoo Finance 스크리너에서 20종목을 무작위로 뽑아 분석합니다
+            Yahoo Finance 스크리너에서 20/50/100종목을 무작위로 뽑아 분석합니다
           </p>
         </div>
       )}
