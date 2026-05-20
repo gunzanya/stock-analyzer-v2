@@ -1,8 +1,12 @@
+import type React from 'react';
 import { useEffect, useState } from 'react';
 import { fetchAnalysis } from './lib/api.js';
 import type { AnalysisResult } from './lib/types.js';
 import { loadFavorites, saveFavorites } from './lib/favorites.js';
 import { StockCard } from './components/StockCard.js';
+import { ScreenerPanel } from './components/ScreenerPanel.js';
+
+type Tab = 'analyze' | 'screener';
 
 interface CardState {
   ticker: string;
@@ -23,6 +27,7 @@ function parseTickers(input: string): string[] {
 }
 
 function App() {
+  const [tab, setTab] = useState<Tab>('analyze');
   const [input, setInput] = useState('');
   const [cards, setCards] = useState<CardState[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -81,59 +86,83 @@ function App() {
               7유형 분류 · CANSLIM 12 · TotalScore · 매매 전략
             </p>
           </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void runAnalysis(input);
-            }}
-            className="flex flex-col sm:flex-row gap-2"
-          >
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="티커 입력 (NVDA, AAPL, 005930.KS...)"
-              className="flex-1 min-h-[44px] px-3 py-2 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-base text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              aria-label="티커 목록"
-              autoCapitalize="characters"
-              autoCorrect="off"
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <button
-              type="submit"
-              className="min-h-[44px] px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-base active:bg-indigo-700 disabled:opacity-50 transition-colors"
-              disabled={cards.some((c) => c.status === 'loading') || input.trim() === ''}
-            >
-              분석
-            </button>
-          </form>
 
-          {favorites.length > 0 && (
-            <div className="mt-3">
-              <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">
-                ⭐ 내 관심종목 ({favorites.length})
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {favorites.map((t) => (
-                  <FavoriteChip
-                    key={t}
-                    ticker={t}
-                    onAnalyze={() => {
-                      setInput(t);
-                      void runAnalysis(t);
-                    }}
-                    onRemove={() => toggleFavorite(t)}
-                  />
-                ))}
-              </div>
-            </div>
+          <div className="flex gap-1 mb-3 border-b border-[#1e293b]">
+            <TabButton active={tab === 'analyze'} onClick={() => setTab('analyze')}>
+              📊 개별 분석
+            </TabButton>
+            <TabButton active={tab === 'screener'} onClick={() => setTab('screener')}>
+              🎲 스크리너
+            </TabButton>
+          </div>
+
+          {tab === 'analyze' && (
+            <>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void runAnalysis(input);
+                }}
+                className="flex flex-col sm:flex-row gap-2"
+              >
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="티커 입력 (NVDA, AAPL, 005930.KS...)"
+                  className="flex-1 min-h-[44px] px-3 py-2 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-base text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  aria-label="티커 목록"
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <button
+                  type="submit"
+                  className="min-h-[44px] px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-base active:bg-indigo-700 disabled:opacity-50 transition-colors"
+                  disabled={cards.some((c) => c.status === 'loading') || input.trim() === ''}
+                >
+                  분석
+                </button>
+              </form>
+
+              {favorites.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">
+                    ⭐ 내 관심종목 ({favorites.length})
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {favorites.map((t) => (
+                      <FavoriteChip
+                        key={t}
+                        ticker={t}
+                        onAnalyze={() => {
+                          setInput(t);
+                          void runAnalysis(t);
+                        }}
+                        onRemove={() => toggleFavorite(t)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto p-4">
-        {cards.length === 0 ? (
+        {tab === 'screener' ? (
+          <ScreenerPanel
+            favorites={favorites}
+            onToggleFavorite={toggleFavorite}
+            onPickTicker={(t) => {
+              setTab('analyze');
+              setInput(t);
+              void runAnalysis(t);
+            }}
+          />
+        ) : cards.length === 0 ? (
           <EmptyState hasFavorites={favorites.length > 0} />
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -153,6 +182,31 @@ function App() {
         분석 데이터: Yahoo Finance · 본 분석은 투자 권유가 아닙니다.
       </footer>
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        'px-3 py-2 -mb-px text-sm font-medium border-b-2 transition-colors ' +
+        (active
+          ? 'border-indigo-500 text-indigo-300'
+          : 'border-transparent text-slate-400 hover:text-slate-200')
+      }
+    >
+      {children}
+    </button>
   );
 }
 
