@@ -4,13 +4,13 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/*.ts": {
-      "memory": 1024,
-      "maxDuration": 30
-    },
     "api/screen.ts": {
       "memory": 1024,
       "maxDuration": 60
+    },
+    "api/*.ts": {
+      "memory": 1024,
+      "maxDuration": 30
     }
   },
   "headers": [
