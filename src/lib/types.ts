@@ -68,9 +68,11 @@ export interface FundamentalData {
   epsGrowth5y: number | null;      // 0–1 (5-year CAGR if available)
 
   // Dividend
-  dividendYield: number | null;    // 0–1
-  payoutRatio: number | null;
+  dividendYield: number | null;          // 0–1
+  payoutRatio: number | null;            // Yahoo-reported, may be null
   dividendGrowthYears: number | null;
+  trailingAnnualDividendRate: number | null; // dividend per share, native currency
+  trailingEps: number | null;            // TTM diluted EPS, native currency
 
   // Balance sheet
   totalAssets: number | null;
@@ -79,6 +81,9 @@ export interface FundamentalData {
   cashAndShortTerm: number | null;
   investmentAssets: number | null;
   debtToEquity: number | null;
+  // newest-first history of (totalLiabilities / totalEquity) — used for D/E
+  // trend in TURNAROUND aux section. Empty when data unavailable.
+  debtToEquityHistory: { date: string; ratio: number }[];
 
   // Time series
   quarterly: QuarterlyDatum[];     // most recent first, up to 4

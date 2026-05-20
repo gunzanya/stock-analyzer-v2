@@ -15,6 +15,7 @@ import { SafetyBanner } from './SafetyBanner.js';
 import { StrategyCard } from './StrategyCard.js';
 import { PriceChart } from './PriceChart.js';
 import { TypeInsightCard } from './TypeInsightCard.js';
+import { TypeAuxCard } from './TypeAuxCard.js';
 import { RiskFactorsCard } from './RiskFactorsCard.js';
 
 const STOCK_TYPE_ORDER: StockType[] = [
@@ -331,6 +332,15 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
       <div className="px-5 pt-4">
         <CanslimBars canslim={result.canslim} primaryType={effectiveType} />
       </div>
+
+      {/* Type-specific auxiliary indicators (only for some types) */}
+      {(['SLOW_GROWER', 'CYCLICAL', 'ASSET_PLAY', 'TURNAROUND'] as const).includes(
+        effectiveType as 'SLOW_GROWER' | 'CYCLICAL' | 'ASSET_PLAY' | 'TURNAROUND',
+      ) && (
+        <div className="px-5 pt-4">
+          <TypeAuxCard type={effectiveType} fund={f} />
+        </div>
+      )}
 
       {/* Type insight */}
       <div className="px-5 pt-4">

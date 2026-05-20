@@ -192,20 +192,23 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
   let totalLiabilities: number | null = null;
   let cashAndShortTerm: number | null = null;
   let investmentAssets: number | null = null;
+  const debtToEquityHistory: { date: string; ratio: number }[] = [];
   try {
-    const period1 = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    // ~2 years to give the D/E trend a few data points.
+    const period1 = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000);
     const ftsRaw = (await yahooFinance.fundamentalsTimeSeries(
       upper,
       { period1, type: 'quarterly', module: 'balance-sheet' },
       { validateResult: false },
     )) as Array<Record<string, number | Date | undefined>>;
     if (Array.isArray(ftsRaw) && ftsRaw.length > 0) {
-      // Latest quarter is last in array
+      // Yahoo returns oldest-first; latest is last.
       const latest = ftsRaw[ftsRaw.length - 1];
-      const pick = (k: string): number | null => {
-        const v = latest[k];
+      const pickFrom = (row: Record<string, number | Date | undefined>, k: string): number | null => {
+        const v = row[k];
         return typeof v === 'number' && Number.isFinite(v) ? v : null;
       };
+      const pick = (k: string) => pickFrom(latest, k);
       // Yahoo's actual field names (no "quarterly" prefix despite their docs)
       totalAssets = pick('totalAssets');
       totalLiabilities =
@@ -223,6 +226,21 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
       const longTermInv2 = pick('longTermInvestments') ?? 0;
       const invSum = longTermInv + longTermInv2;
       investmentAssets = invSum > 0 ? invSum : null;
+
+      // Newest-first D/E history (totalLiabilities / totalEquity)
+      for (let i = ftsRaw.length - 1; i >= 0 && debtToEquityHistory.length < 6; i--) {
+        const row = ftsRaw[i];
+        const liab =
+          pickFrom(row, 'totalLiabilitiesNetMinorityInterest') ??
+          pickFrom(row, 'totalLiab');
+        const assets = pickFrom(row, 'totalAssets');
+        if (liab == null || assets == null) continue;
+        const equity = assets - liab;
+        if (equity <= 0) continue;
+        const date = row.date instanceof Date ? row.date.toISOString().slice(0, 10) : '';
+        if (!date) continue;
+        debtToEquityHistory.push({ date, ratio: liab / equity });
+      }
     }
   } catch (err) {
     warnings.push(`fundamentalsTimeSeries(balance-sheet) failed: ${(err as Error).message}`);
@@ -273,6 +291,8 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
   // ----- Dividend -----
   const dividendYield = num(sd?.dividendYield) ?? num(sd?.trailingAnnualDividendYield);
   const payoutRatio = num(sd?.payoutRatio);
+  const trailingAnnualDividendRate = num(sd?.trailingAnnualDividendRate);
+  const trailingEps = num(ks?.trailingEps);
 
   // ----- Balance sheet ratios -----
   const debtToEquity = num(fd?.debtToEquity);
@@ -323,6 +343,8 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
     dividendYield,
     payoutRatio,
     dividendGrowthYears: null,
+    trailingAnnualDividendRate,
+    trailingEps,
 
     totalAssets,
     totalLiabilities,
@@ -330,6 +352,7 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
     cashAndShortTerm,
     investmentAssets,
     debtToEquity,
+    debtToEquityHistory,
 
     quarterly,
     annual,
