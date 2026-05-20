@@ -7,6 +7,7 @@ import { STOCK_TYPE_LABELS } from './types.js';
 import type {
   ClassificationResult,
   FundamentalData,
+  StockType,
   TypeCandidateScore,
 } from './types.js';
 import { scoreAllTypes } from './stockType.js';
@@ -18,65 +19,118 @@ const UNCERTAIN_THRESHOLD = 30; // best score below this → "분류 불확실"
 
 const UNCERTAIN_LABEL = '⚠️ 분류 불확실 — 데이터 부족';
 
+// Sector → preferred type. Used for (a) tiebreak when top-2 are exactly tied,
+// and (b) low-score boost when all candidates are below the uncertain threshold.
+const SECTOR_PREFERRED_TYPE: Record<string, StockType> = {
+  Energy: 'CYCLICAL',
+  'Basic Materials': 'CYCLICAL',
+  Technology: 'FAST_GROWER',
+  'Financial Services': 'STALWART',
+  'Consumer Defensive': 'SLOW_GROWER',
+  Utilities: 'SLOW_GROWER',
+  'Consumer Cyclical': 'CYCLICAL',
+  Healthcare: 'FAST_GROWER',
+};
+
 function formatLabel(t: TypeCandidateScore['type'], ratio?: number): string {
   const { emoji, ko } = STOCK_TYPE_LABELS[t];
   return ratio != null ? `${emoji} ${ko} ${ratio}%` : `${emoji} ${ko}`;
 }
 
+function resort(cands: TypeCandidateScore[], preferredOnTie: StockType | null) {
+  cands.sort((a, b) => {
+    if (a.disqualified && !b.disqualified) return 1;
+    if (!a.disqualified && b.disqualified) return -1;
+    if (a.score !== b.score) return b.score - a.score;
+    if (preferredOnTie) {
+      if (a.type === preferredOnTie) return -1;
+      if (b.type === preferredOnTie) return 1;
+    }
+    return 0;
+  });
+}
+
 export function classify(fund: FundamentalData): ClassificationResult {
   const candidates = scoreAllTypes(fund);
-  // Only blendable among non-disqualified
-  const live = candidates.filter((c) => !c.disqualified);
-  const first = live[0];
-  const second = live[1];
-  const topScore = first?.score ?? 0;
+  const sectorPreferred =
+    fund.sector && SECTOR_PREFERRED_TYPE[fund.sector]
+      ? SECTOR_PREFERRED_TYPE[fund.sector]
+      : null;
 
-  // Uncertain: best non-disqualified score is below threshold
-  if (topScore < UNCERTAIN_THRESHOLD) {
-    // STALWART rescue: applied ONLY when STALWART is itself the natural top
-    // (i.e. no other type beats it). Mega-cap profitable companies whose
-    // STALWART score landed in 0-29 (e.g. DIS) get lifted to 30/35 so the
-    // user sees "🏛️ 대형우량" instead of "분류 불확실".
-    // If another type (FAST_GROWER, ASSET_PLAY, ...) is the natural top
-    // below 30, we respect it and leave the result uncertain — that
-    // prevents the rescue from overriding cases like CRWD.
-    if (first?.type === 'STALWART') {
-      const mcap = fund.marketCap;
-      const ttmEps = fund.quarterly
-        .slice(0, 4)
-        .reduce((acc, q) => acc + (q.eps ?? 0), 0);
-      const profitable =
-        ttmEps > 0 ||
-        (fund.annual[0]?.netIncome != null && fund.annual[0].netIncome > 0);
-      let rescueScore = 0;
-      if (mcap != null && profitable) {
-        if (mcap > 200e9) rescueScore = 35;
-        else if (mcap > 50e9) rescueScore = 30;
+  // (Step 1) Sector tiebreak: if top-2 are exactly tied, prefer the
+  // sector-aligned type. Applies at any score level.
+  if (sectorPreferred) {
+    const live = candidates.filter((c) => !c.disqualified);
+    if (
+      live.length >= 2 &&
+      live[0].score === live[1].score &&
+      live[0].type !== sectorPreferred
+    ) {
+      const prefCand = live.find((c) => c.type === sectorPreferred);
+      if (prefCand && prefCand.score === live[0].score) {
+        prefCand.reasons.push(`섹터 ${fund.sector} 타이브레이크 → 1위`);
+        resort(candidates, sectorPreferred);
       }
+    }
+  }
+
+  // (Step 2) Low-score boost: when the top live score is below the uncertain
+  // threshold, give the sector-preferred type +10 to help escape "uncertain".
+  let live = candidates.filter((c) => !c.disqualified);
+  let first = live[0];
+  if (
+    first &&
+    first.score < UNCERTAIN_THRESHOLD &&
+    sectorPreferred &&
+    fund.sector
+  ) {
+    const prefCand = candidates.find(
+      (c) => c.type === sectorPreferred && !c.disqualified,
+    );
+    if (prefCand) {
+      const before = prefCand.score;
+      prefCand.score = before + 10;
+      prefCand.reasons.push(
+        `섹터 ${fund.sector} 저점수 보정 → +10 (${before}→${prefCand.score})`,
+      );
+      resort(candidates, sectorPreferred);
+      live = candidates.filter((c) => !c.disqualified);
+      first = live[0];
+    }
+  }
+
+  // (Step 3) Big-cap rescue: when top score is still below threshold, bump
+  // mega-/large-cap profitable companies up to a sensible floor so the UI
+  // can present a real type instead of "분류 불확실".
+  //   mcap ≥ $30B + 흑자  → floor 30
+  //   mcap ≥ $100B + 흑자 → floor 35
+  if (first && first.score < UNCERTAIN_THRESHOLD) {
+    const mcap = fund.marketCap;
+    const ttmEps = fund.quarterly
+      .slice(0, 4)
+      .reduce((acc, q) => acc + (q.eps ?? 0), 0);
+    const profitable =
+      ttmEps > 0 ||
+      (fund.annual[0]?.netIncome != null && fund.annual[0].netIncome > 0);
+    if (mcap != null && mcap >= 30e9 && profitable) {
+      const rescueScore = mcap >= 100e9 ? 35 : 30;
       if (rescueScore > first.score) {
         const before = first.score;
         first.score = rescueScore;
         first.reasons.push(
-          `대형 우량 rescue: 시총 $${(mcap! / 1e9).toFixed(0)}B + 흑자, natural top < 30 → ${before}→${rescueScore}`,
+          `대형주 rescue: 시총 $${(mcap / 1e9).toFixed(0)}B + 흑자 → ${before}→${rescueScore}`,
         );
-        candidates.sort((a, b) => {
-          if (a.disqualified && !b.disqualified) return 1;
-          if (!a.disqualified && b.disqualified) return -1;
-          return b.score - a.score;
-        });
-        return {
-          primary: 'STALWART',
-          primaryRatio: 100,
-          secondary: null,
-          secondaryRatio: 0,
-          confidence: rescueScore,
-          candidates,
-          display: formatLabel('STALWART'),
-          uncertain: false,
-        };
+        resort(candidates, sectorPreferred);
+        live = candidates.filter((c) => !c.disqualified);
+        first = live[0];
       }
     }
+  }
 
+  const topScore = first?.score ?? 0;
+
+  // Uncertain: even after all rescues, top live score is below threshold.
+  if (topScore < UNCERTAIN_THRESHOLD) {
     const fallback = first ?? candidates[0];
     return {
       primary: fallback.type,
@@ -90,6 +144,7 @@ export function classify(fund: FundamentalData): ClassificationResult {
     };
   }
 
+  const second = live[1];
   const gap = first.score - (second?.score ?? 0);
   const blendable =
     second != null &&
