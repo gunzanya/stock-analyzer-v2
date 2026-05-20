@@ -81,7 +81,17 @@ const server = createServer(async (req, res) => {
           .slice(0, 40);
       } else {
         const pool = await buildPool(filter);
-        tickers = sampleFrom(pool, n);
+        const excludeRaw = url.searchParams.get('exclude');
+        const exclude = excludeRaw
+          ? new Set(
+              excludeRaw
+                .split(',')
+                .map((t) => t.trim().toUpperCase())
+                .filter(Boolean),
+            )
+          : null;
+        const eligible = exclude ? pool.filter((t) => !exclude.has(t)) : pool;
+        tickers = sampleFrom(eligible, n);
       }
       if (tickers.length === 0) return json(400, { error: 'no_tickers' });
 

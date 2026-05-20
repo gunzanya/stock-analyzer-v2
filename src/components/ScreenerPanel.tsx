@@ -79,8 +79,19 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
     setErrorMsg(null);
     setStatus('running');
 
+    // Exclude already-scanned tickers so cumulative scans never pull
+    // the same name twice. Cap the string at 200 entries (~1500 chars)
+    // — well under any URL length limit even after URL encoding.
+    const excludeList = rows
+      .map((r) => r.ticker)
+      .filter(Boolean)
+      .slice(0, 200);
+    const excludeParam =
+      excludeList.length > 0
+        ? `&exclude=${encodeURIComponent(excludeList.join(','))}`
+        : '';
     const es = new EventSource(
-      `/api/screen?n=${scanCount}&filter=${filter}&_=${Date.now()}`,
+      `/api/screen?n=${scanCount}&filter=${filter}${excludeParam}&_=${Date.now()}`,
     );
     esRef.current = es;
 

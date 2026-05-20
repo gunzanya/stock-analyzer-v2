@@ -156,7 +156,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .slice(0, 40);
   } else {
     const pool = await buildPool(filter);
-    tickers = sampleFrom(pool, n);
+    // Cumulative scans: client passes already-analyzed tickers as ?exclude=
+    // so the new batch yields fresh, non-overlapping picks.
+    const excludeRaw = req.query.exclude as string | undefined;
+    const exclude = excludeRaw
+      ? new Set(
+          excludeRaw
+            .split(',')
+            .map((t) => t.trim().toUpperCase())
+            .filter(Boolean),
+        )
+      : null;
+    const eligible = exclude ? pool.filter((t) => !exclude.has(t)) : pool;
+    tickers = sampleFrom(eligible, n);
   }
 
   if (tickers.length === 0) {
