@@ -103,6 +103,56 @@ export function TotalScoreCard({ total, entry }: Props) {
           </ul>
         </div>
       </div>
+      <EntryBreakdown entry={entry} />
     </section>
+  );
+}
+
+function EntryBreakdown({ entry }: { entry: EntryScoreResult }) {
+  // Gains first (largest +Δ on top), then deductions (largest −Δ on bottom).
+  // Zero-delta entries are informational (e.g. "RSI 67 (65-70 중립)") — keep
+  // them but sort to the middle so non-neutral items dominate visually.
+  const sorted = [
+    ...entry.gains.slice().sort((a, b) => b.delta - a.delta),
+    ...entry.deductions.slice().sort((a, b) => a.delta - b.delta),
+  ];
+  if (sorted.length === 0) return null;
+  const gainSum = entry.gains.reduce((a, g) => a + g.delta, 0);
+  const lossSum = entry.deductions.reduce((a, d) => a + d.delta, 0);
+
+  return (
+    <details className="mt-3 pt-3 border-t border-[#1e293b] text-[11px] group">
+      <summary className="cursor-pointer list-none flex items-center justify-between text-slate-400 hover:text-slate-200 select-none">
+        <span className="flex items-center gap-1.5">
+          <span className="text-[9px] transition-transform group-open:rotate-90">▶</span>
+          <span>EntryScore 점수 상세</span>
+        </span>
+        <span className="text-[10px] text-slate-500 tabular-nums">
+          <span className="text-emerald-400">+{gainSum}</span>
+          {' / '}
+          <span className="text-red-400">{lossSum}</span>
+        </span>
+      </summary>
+      <ul className="mt-2 space-y-0.5">
+        {sorted.map((r, i) => {
+          const color =
+            r.delta > 0 ? 'text-emerald-400'
+              : r.delta < 0 ? 'text-red-400'
+              : 'text-slate-500';
+          const sign = r.delta > 0 ? '+' : '';
+          return (
+            <li
+              key={i}
+              className="flex justify-between gap-2 text-slate-300 leading-tight"
+            >
+              <span className="break-words flex-1">{r.reason}</span>
+              <span className={`${color} font-mono tabular-nums whitespace-nowrap`}>
+                {r.delta === 0 ? '·' : `${sign}${r.delta}`}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </details>
   );
 }
