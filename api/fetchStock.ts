@@ -472,9 +472,19 @@ type ScrId = Parameters<typeof yahooFinance.screener>[0] extends infer T
 
 // Map our filter modes to Yahoo's predefined scrIds. Multiple scrIds per
 // mode get merged + deduped to widen the pool beyond a single screen's
-// ~25 results.
+// ~25 results. `all` unions every scrId we use anywhere.
 const SCR_IDS: Record<ScreenerFilter, ScrId[]> = {
-  all: ['most_actives', 'day_gainers', 'undervalued_large_caps', 'small_cap_gainers'],
+  all: [
+    'most_actives',
+    'day_gainers',
+    'day_losers',
+    'undervalued_large_caps',
+    'portfolio_anchors',
+    'small_cap_gainers',
+    'aggressive_small_caps',
+    'undervalued_growth_stocks',
+    'growth_technology_stocks',
+  ],
   large_cap: ['undervalued_large_caps', 'portfolio_anchors', 'most_actives'],
   small_mid: ['small_cap_gainers', 'aggressive_small_caps', 'undervalued_growth_stocks'],
   tech: ['growth_technology_stocks'],
