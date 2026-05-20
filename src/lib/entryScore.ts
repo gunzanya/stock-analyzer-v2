@@ -6,7 +6,14 @@
 import type { EntryScoreResult, PriceBar, StockType } from './types.js';
 import {
   adx as adxOf,
+  bollingerBands,
+  bollingerBreakout,
   ema,
+  fibProximity,
+  fibonacciLevels,
+  macd,
+  macdCross,
+  macdHistTrend,
   obvBearishDivergence,
   relativeStrength,
   return30d,
@@ -194,6 +201,52 @@ export function computeEntryScore(inputs: EntryScoreInputs): EntryScoreResult {
       gains.push({
         reason: `5일: ${colors.join('')} (${greens}양/${reds}음)`,
         delta: 0,
+      });
+    }
+  }
+
+  // ---------- Fibonacci retracement support / break ----------
+  const fib = fibonacciLevels(stockBars);
+  if (fib) {
+    const prox = fibProximity(stockBars, fib);
+    if (prox.kind === 'near') {
+      gains.push({
+        reason: `피보나치 ${prox.level}% 지지 근접 (±${prox.distancePct.toFixed(1)}%) → +5`,
+        delta: 5,
+      });
+    } else if (prox.kind === 'broke_618') {
+      deductions.push({
+        reason: `피보나치 61.8% 핵심 지지 이탈 → -5`,
+        delta: -5,
+      });
+    }
+  }
+
+  // ---------- MACD(12,26,9) — cross + histogram momentum ----------
+  const macdSeries = macd(stockBars);
+  if (macdSeries) {
+    const cross = macdCross(macdSeries);
+    if (cross === 'golden') {
+      gains.push({ reason: 'MACD 골든크로스 → +5', delta: 5 });
+    } else if (cross === 'dead') {
+      deductions.push({ reason: 'MACD 데드크로스 → -5', delta: -5 });
+    }
+    const trend = macdHistTrend(macdSeries);
+    if (trend === '3up') {
+      gains.push({ reason: 'MACD 히스토그램 3일 증가 → +3 (모멘텀 강화)', delta: 3 });
+    } else if (trend === '3down') {
+      deductions.push({ reason: 'MACD 히스토그램 3일 감소 → -3 (모멘텀 약화)', delta: -3 });
+    }
+  }
+
+  // ---------- Bollinger upper-band breakout with volume confirmation ----------
+  const bb = bollingerBands(stockBars);
+  if (bb) {
+    const breakout = bollingerBreakout(stockBars, bb);
+    if (breakout === 'upper' && vr != null && vr >= 1.5) {
+      gains.push({
+        reason: `볼린저 상단 돌파 + 거래량 ${vr.toFixed(2)}x → +3 (강한 돌파)`,
+        delta: 3,
       });
     }
   }

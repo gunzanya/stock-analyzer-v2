@@ -4,14 +4,25 @@
 import type {
   AnalysisResult,
   FundamentalData,
+  PriceBar,
   RiskFactor,
   SafetyGuardResult,
 } from './types.js';
+import {
+  bollingerBands,
+  bollingerBreakout,
+  bollingerSqueeze,
+  fibProximity,
+  fibonacciLevels,
+  rsi,
+} from './indicators.js';
 
 interface RiskInputs {
   fund: FundamentalData;
   safety: SafetyGuardResult;
   indicators: AnalysisResult['indicators'];
+  /** Optional — when present, enables Fibonacci / Bollinger risk hints. */
+  stockBars?: PriceBar[];
 }
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -103,6 +114,45 @@ export function extractRiskFactors(inp: RiskInputs): RiskFactor[] {
       const qoq = e0 / e1 - 1;
       if (qoq < -0.3) {
         out.push({ severity: 'medium', message: `분기 EPS ${(qoq * 100).toFixed(0)}% 감소 (QoQ)` });
+      }
+    }
+  }
+
+  // Fibonacci / Bollinger — only when raw bars are supplied
+  if (inp.stockBars && inp.stockBars.length >= 20) {
+    const bars = inp.stockBars;
+    const fib = fibonacciLevels(bars);
+    if (fib) {
+      const prox = fibProximity(bars, fib);
+      if (prox.kind === 'near') {
+        out.push({
+          severity: 'low',
+          message: `피보나치 ${prox.level}% 지지 테스트 중 (±${prox.distancePct.toFixed(1)}%)`,
+        });
+      } else if (prox.kind === 'broke_618') {
+        out.push({
+          severity: 'medium',
+          message: `피보나치 61.8% 핵심 지지 이탈`,
+        });
+      }
+    }
+    const bb = bollingerBands(bars);
+    if (bb) {
+      if (bollingerSqueeze(bb)) {
+        out.push({
+          severity: 'low',
+          message: `볼린저 밴드 수축 — 변동성 압축, 큰 움직임 임박`,
+        });
+      }
+      const breakout = bollingerBreakout(bars, bb);
+      const rsiVal = rsi(bars, 14);
+      if (breakout === 'lower' && rsiVal != null && rsiVal < 35) {
+        out.push({
+          severity: 'high',
+          message: `볼린저 하단 터치 + RSI ${rsiVal.toFixed(0)} (과매도 극단)`,
+        });
+      } else if (breakout === 'lower') {
+        out.push({ severity: 'medium', message: `볼린저 하단 터치 주의` });
       }
     }
   }

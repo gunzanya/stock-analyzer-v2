@@ -416,3 +416,240 @@ export function sma(bars: PriceBar[], period: number): number | null {
   if (bars.length < period) return null;
   return bars.slice(0, period).reduce((a, b) => a + b.close, 0) / period;
 }
+
+// ---------- Fibonacci retracement ----------
+
+export interface FibLevels {
+  high: number;
+  low: number;
+  /** 38.2 / 50 / 61.8 retracements between high and low. */
+  level382: number;
+  level500: number;
+  level618: number;
+}
+
+/** Compute Fibonacci retracement levels from the last `window` bars
+ *  (default 252 ≈ 12 months). Newest-first input. */
+export function fibonacciLevels(bars: PriceBar[], window = 252): FibLevels | null {
+  if (bars.length < 20) return null;
+  const slice = bars.slice(0, Math.min(window, bars.length));
+  let high = -Infinity;
+  let low = Infinity;
+  for (const b of slice) {
+    const h = b.high ?? b.close;
+    const l = b.low ?? b.close;
+    if (h > high) high = h;
+    if (l < low) low = l;
+  }
+  if (!Number.isFinite(high) || !Number.isFinite(low) || high <= low) return null;
+  const range = high - low;
+  return {
+    high,
+    low,
+    level382: high - range * 0.382,
+    level500: high - range * 0.5,
+    level618: high - range * 0.618,
+  };
+}
+
+export type FibProximity =
+  | { kind: 'near'; level: '38.2' | '50' | '61.8'; distancePct: number }
+  | { kind: 'broke_618' }
+  | { kind: 'none' };
+
+/** Reports if the latest close is within ±tolerancePct of any Fib level
+ *  or has fallen below the 61.8% level (key support break). */
+export function fibProximity(
+  bars: PriceBar[],
+  levels: FibLevels,
+  tolerancePct = 0.03,
+): FibProximity {
+  const px = bars[0]?.close;
+  if (px == null || !Number.isFinite(px)) return { kind: 'none' };
+  if (px < levels.level618) return { kind: 'broke_618' };
+  const entries: { label: '38.2' | '50' | '61.8'; price: number }[] = [
+    { label: '38.2', price: levels.level382 },
+    { label: '50', price: levels.level500 },
+    { label: '61.8', price: levels.level618 },
+  ];
+  for (const e of entries) {
+    const dist = Math.abs(px - e.price) / e.price;
+    if (dist <= tolerancePct) {
+      return { kind: 'near', level: e.label, distancePct: dist * 100 };
+    }
+  }
+  return { kind: 'none' };
+}
+
+// ---------- MACD ----------
+
+export interface MacdSeries {
+  /** Oldest-first; length === bars.length, leading nulls until enough data. */
+  macd: (number | null)[];
+  signal: (number | null)[];
+  histogram: (number | null)[];
+}
+
+/** MACD(fast, slow, signal). Returns full oldest-first arrays so callers
+ *  can inspect crosses and histogram trends. Null if too few bars. */
+export function macd(
+  bars: PriceBar[],
+  fast = 12,
+  slow = 26,
+  signalPeriod = 9,
+): MacdSeries | null {
+  if (bars.length < slow + signalPeriod) return null;
+  const closes = [...bars].reverse().map((b) => b.close);
+  const n = closes.length;
+  const emaSeries = (period: number): (number | null)[] => {
+    const out: (number | null)[] = new Array<number | null>(n).fill(null);
+    if (n < period) return out;
+    const k = 2 / (period + 1);
+    let prev = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    out[period - 1] = prev;
+    for (let i = period; i < n; i++) {
+      prev = closes[i] * k + prev * (1 - k);
+      out[i] = prev;
+    }
+    return out;
+  };
+  const emaFast = emaSeries(fast);
+  const emaSlow = emaSeries(slow);
+  const macdLine: (number | null)[] = emaFast.map((v, i) =>
+    v != null && emaSlow[i] != null ? v - (emaSlow[i] as number) : null,
+  );
+
+  const signalLine: (number | null)[] = new Array<number | null>(n).fill(null);
+  let firstNonNull = -1;
+  for (let i = 0; i < n; i++) {
+    if (macdLine[i] != null) {
+      firstNonNull = i;
+      break;
+    }
+  }
+  if (firstNonNull < 0 || firstNonNull + signalPeriod > n) return null;
+  let seedSum = 0;
+  for (let i = firstNonNull; i < firstNonNull + signalPeriod; i++) {
+    seedSum += macdLine[i] as number;
+  }
+  const seedIdx = firstNonNull + signalPeriod - 1;
+  let prevSignal = seedSum / signalPeriod;
+  signalLine[seedIdx] = prevSignal;
+  const k = 2 / (signalPeriod + 1);
+  for (let i = seedIdx + 1; i < n; i++) {
+    const m = macdLine[i];
+    if (m == null) continue;
+    prevSignal = m * k + prevSignal * (1 - k);
+    signalLine[i] = prevSignal;
+  }
+  const histogram: (number | null)[] = macdLine.map((m, i) =>
+    m != null && signalLine[i] != null ? m - (signalLine[i] as number) : null,
+  );
+  return { macd: macdLine, signal: signalLine, histogram };
+}
+
+export type MacdCross = 'golden' | 'dead' | 'none';
+
+/** Detect a MACD/signal cross on the most recent bar (today vs. yesterday). */
+export function macdCross(series: MacdSeries): MacdCross {
+  const m = series.macd;
+  const s = series.signal;
+  const n = m.length;
+  if (n < 2) return 'none';
+  const m1 = m[n - 1];
+  const m0 = m[n - 2];
+  const s1 = s[n - 1];
+  const s0 = s[n - 2];
+  if (m0 == null || m1 == null || s0 == null || s1 == null) return 'none';
+  if (m0 <= s0 && m1 > s1) return 'golden';
+  if (m0 >= s0 && m1 < s1) return 'dead';
+  return 'none';
+}
+
+/** '3up' if the last 3 histogram values are strictly increasing, '3down'
+ *  if strictly decreasing, otherwise null. */
+export function macdHistTrend(series: MacdSeries): '3up' | '3down' | null {
+  const h = series.histogram;
+  const n = h.length;
+  if (n < 3) return null;
+  const a = h[n - 3];
+  const b = h[n - 2];
+  const c = h[n - 1];
+  if (a == null || b == null || c == null) return null;
+  if (c > b && b > a) return '3up';
+  if (c < b && b < a) return '3down';
+  return null;
+}
+
+// ---------- Bollinger Bands ----------
+
+export interface BollingerSeries {
+  middle: (number | null)[];
+  upper: (number | null)[];
+  lower: (number | null)[];
+  /** (upper - lower) / middle, used for squeeze detection. */
+  bandwidth: (number | null)[];
+}
+
+/** Bollinger Bands (default 20-period SMA, 2σ). Oldest-first arrays.
+ *  Returns null if too few bars. */
+export function bollingerBands(
+  bars: PriceBar[],
+  period = 20,
+  k = 2,
+): BollingerSeries | null {
+  const n = bars.length;
+  if (n < period) return null;
+  const closes = [...bars].reverse().map((b) => b.close);
+  const middle: (number | null)[] = new Array(n).fill(null);
+  const upper: (number | null)[] = new Array(n).fill(null);
+  const lower: (number | null)[] = new Array(n).fill(null);
+  const bandwidth: (number | null)[] = new Array(n).fill(null);
+  for (let i = period - 1; i < n; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += closes[j];
+    const mean = sum / period;
+    let variance = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      variance += (closes[j] - mean) ** 2;
+    }
+    const sd = Math.sqrt(variance / period);
+    middle[i] = mean;
+    upper[i] = mean + k * sd;
+    lower[i] = mean - k * sd;
+    bandwidth[i] = mean !== 0 ? (2 * k * sd) / mean : null;
+  }
+  return { middle, upper, lower, bandwidth };
+}
+
+/** True when today's bandwidth is the lowest over the last `window` bars. */
+export function bollingerSqueeze(series: BollingerSeries, window = 20): boolean {
+  const bw = series.bandwidth;
+  const n = bw.length;
+  if (n < window) return false;
+  const today = bw[n - 1];
+  if (today == null) return false;
+  let min = today;
+  for (let i = n - window; i < n; i++) {
+    const v = bw[i];
+    if (v != null && v < min) min = v;
+  }
+  return today <= min + 1e-9;
+}
+
+export type BollingerBreakout = 'upper' | 'lower' | 'none';
+
+/** Detect today's close touching/breaching a band. */
+export function bollingerBreakout(
+  bars: PriceBar[],
+  series: BollingerSeries,
+): BollingerBreakout {
+  const n = bars.length;
+  if (n === 0) return 'none';
+  const px = bars[0].close;
+  const upper = series.upper[series.upper.length - 1];
+  const lower = series.lower[series.lower.length - 1];
+  if (upper != null && px >= upper) return 'upper';
+  if (lower != null && px <= lower) return 'lower';
+  return 'none';
+}

@@ -129,7 +129,12 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
         rationale: '가격 데이터가 없어 전략을 산출할 수 없습니다.',
       };
   const typeInsight = getTypeInsight(classification.primary);
-  const riskFactors = extractRiskFactors({ fund, safety: safetyGuard, indicators });
+  const riskFactors = extractRiskFactors({
+    fund,
+    safety: safetyGuard,
+    indicators,
+    stockBars,
+  });
 
   // Keep ~252 days of bars for the chart (12 months trading days)
   // — required so that SMA200 has enough lookback to render the line.

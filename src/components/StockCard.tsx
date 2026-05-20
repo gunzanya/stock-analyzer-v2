@@ -320,12 +320,7 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
 
       {/* Price chart */}
       <div className="px-5 pt-4">
-        <PriceChart
-          bars={result.priceBars}
-          ema20={ind.ema20}
-          sma50={ind.sma50}
-          sma200={ind.sma200}
-        />
+        <PriceChart bars={result.priceBars} />
       </div>
 
       {/* CANSLIM */}
