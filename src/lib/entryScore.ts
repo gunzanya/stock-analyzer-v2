@@ -3,12 +3,14 @@
 //
 // Gains and deductions are recorded with reasons for the UI.
 
-import type { EntryScoreResult, PriceBar } from './types.js';
+import type { EntryScoreResult, PriceBar, StockType } from './types.js';
 import {
   adx as adxOf,
+  ema,
   obvBearishDivergence,
   relativeStrength,
   return30d,
+  rsi as rsiOf,
   volumeRatio,
 } from './indicators.js';
 
@@ -19,10 +21,14 @@ export interface EntryScoreInputs {
   stockBars: PriceBar[];
   benchmarkBars: PriceBar[];
   absoluteMode?: boolean;
+  /** Classifier primary; gates the RSI<30 branch (oversold means different
+   *  things for cyclicals vs. fast growers). Optional — falls back to
+   *  generic treatment when absent. */
+  primaryType?: StockType | null;
 }
 
 export function computeEntryScore(inputs: EntryScoreInputs): EntryScoreResult {
-  const { stockBars, benchmarkBars, absoluteMode } = inputs;
+  const { stockBars, benchmarkBars, absoluteMode, primaryType } = inputs;
   const gains: { reason: string; delta: number }[] = [];
   const deductions: { reason: string; delta: number }[] = [];
 
@@ -80,6 +86,116 @@ export function computeEntryScore(inputs: EntryScoreInputs): EntryScoreResult {
       reason: `3개월 +${(stockReturn3M * 100).toFixed(0)}% → +5 (절대 모멘텀)`,
       delta: 5,
     });
+  }
+
+  // ---------- RSI(14) — overheating + type-aware oversold reading ----------
+  const rsiVal = rsiOf(stockBars, 14);
+  if (rsiVal != null) {
+    if (rsiVal > 70) {
+      deductions.push({
+        reason: `RSI ${rsiVal.toFixed(0)} > 70 → -10 (과매수)`,
+        delta: -10,
+      });
+    } else if (rsiVal >= 65) {
+      gains.push({ reason: `RSI ${rsiVal.toFixed(0)} (65-70 중립)`, delta: 0 });
+    } else if (rsiVal >= 50) {
+      gains.push({
+        reason: `RSI ${rsiVal.toFixed(0)} (50-65 골디락스) → +5`,
+        delta: 5,
+      });
+    } else if (rsiVal >= 30) {
+      gains.push({ reason: `RSI ${rsiVal.toFixed(0)} (30-50 중립)`, delta: 0 });
+    } else {
+      // RSI < 30 — meaning depends on the kind of stock
+      if (primaryType === 'FAST_GROWER' || primaryType === 'STALWART') {
+        deductions.push({
+          reason: `RSI ${rsiVal.toFixed(0)} < 30 → -5 (성장/우량주 하락추세)`,
+          delta: -5,
+        });
+      } else if (primaryType === 'TURNAROUND') {
+        gains.push({
+          reason: `RSI ${rsiVal.toFixed(0)} < 30 (턴어라운드 — 낙폭과대 반등 가능)`,
+          delta: 0,
+        });
+      } else if (primaryType === 'CYCLICAL') {
+        gains.push({
+          reason: `RSI ${rsiVal.toFixed(0)} < 30 → +5 (순환주 바닥 매수)`,
+          delta: 5,
+        });
+      } else {
+        deductions.push({
+          reason: `RSI ${rsiVal.toFixed(0)} < 30 → -3 (과매도)`,
+          delta: -3,
+        });
+      }
+    }
+  }
+
+  // ---------- EMA20 proximity — pullback support vs. over-extension ----------
+  const ema20 = ema(stockBars, 20);
+  const px = stockBars[0]?.close ?? null;
+  if (ema20 != null && px != null && ema20 > 0) {
+    const dist = (px - ema20) / ema20;
+    const pct = dist * 100;
+    const sign = pct >= 0 ? '+' : '';
+    if (Math.abs(dist) <= 0.02) {
+      gains.push({
+        reason: `EMA20 ${sign}${pct.toFixed(1)}% (±2% 풀백 지지) → +10`,
+        delta: 10,
+      });
+    } else if (dist > 0.10) {
+      deductions.push({
+        reason: `EMA20 +${pct.toFixed(1)}% (>10% 과이격) → -5`,
+        delta: -5,
+      });
+    } else if (dist > 0.05) {
+      gains.push({
+        reason: `EMA20 +${pct.toFixed(1)}% (5-10% 상승 중) → +5`,
+        delta: 5,
+      });
+    } else if (dist > 0.02) {
+      gains.push({ reason: `EMA20 +${pct.toFixed(1)}%`, delta: 0 });
+    } else {
+      gains.push({ reason: `EMA20 ${pct.toFixed(1)}% (아래)`, delta: 0 });
+    }
+  }
+
+  // ---------- 5-day candle pattern — overheating / pullback recovery ----------
+  if (stockBars.length >= 5) {
+    const recent5 = stockBars.slice(0, 5);
+    const colors = recent5.map((b): 'g' | 'r' | '·' => {
+      if (b.open == null) return '·';
+      if (b.close > b.open) return 'g';
+      if (b.close < b.open) return 'r';
+      return '·';
+    });
+    const greens = colors.filter((c) => c === 'g').length;
+    const reds = colors.filter((c) => c === 'r').length;
+    const todayGreen = colors[0] === 'g';
+    // Prior 2 (or more) sessions red then today's green = healthy pullback
+    const priorPullback =
+      todayGreen && colors[1] === 'r' && colors[2] === 'r';
+    if (greens >= 4) {
+      deductions.push({
+        reason: `5일 ${greens}양봉 → -5 (단기 과열)`,
+        delta: -5,
+      });
+    } else if (reds >= 4) {
+      deductions.push({
+        reason: `5일 ${reds}음봉 → -5 (하락 추세)`,
+        delta: -5,
+      });
+    } else if (priorPullback) {
+      gains.push({
+        reason: `5일: ${colors.join('')} (조정 후 양봉) → +5`,
+        delta: 5,
+      });
+    } else {
+      gains.push({
+        reason: `5일: ${colors.join('')} (${greens}양/${reds}음)`,
+        delta: 0,
+      });
+    }
   }
 
   // ---------- Deductions (per stage 5 spec, slightly softened) ----------

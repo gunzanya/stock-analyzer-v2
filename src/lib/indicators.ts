@@ -370,6 +370,34 @@ export function atr(bars: PriceBar[], period = 14): number | null {
 
 // ---------- EMA / SMA helpers ----------
 
+/** Wilder's RSI over the most recent `period` bars. Newest-first input. */
+export function rsi(bars: PriceBar[], period = 14): number | null {
+  if (bars.length < period + 1) return null;
+  const xs = [...bars].reverse(); // oldest-first
+  // Seed with simple average of first `period` gains/losses
+  let gainSum = 0;
+  let lossSum = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = xs[i].close - xs[i - 1].close;
+    if (diff >= 0) gainSum += diff;
+    else lossSum += -diff;
+  }
+  let avgGain = gainSum / period;
+  let avgLoss = lossSum / period;
+  // Wilder smoothing for the rest of the series
+  for (let i = period + 1; i < xs.length; i++) {
+    const diff = xs[i].close - xs[i - 1].close;
+    const gain = diff > 0 ? diff : 0;
+    const loss = diff < 0 ? -diff : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+  }
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  const value = 100 - 100 / (1 + rs);
+  return Number.isFinite(value) ? value : null;
+}
+
 /** Exponential moving average over the most recent `period` bars. Newest-first. */
 export function ema(bars: PriceBar[], period: number): number | null {
   if (bars.length < period) return null;

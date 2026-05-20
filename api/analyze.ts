@@ -65,7 +65,12 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
       };
 
   const entryScore = hasPrices
-    ? computeEntryScore({ stockBars, benchmarkBars: benchBars, absoluteMode: isKoreanTicker })
+    ? computeEntryScore({
+        stockBars,
+        benchmarkBars: benchBars,
+        absoluteMode: isKoreanTicker,
+        primaryType: classification.primary,
+      })
     : {
         score: 0,
         gains: [],
