@@ -36,7 +36,7 @@ for (const t of TICKERS) {
     const px = bars[0]?.close ?? null;
 
     console.log(
-      `\n=== ${t} [${r.classification.primary}] Entry=${r.entryScore.score} (${r.entryScore.level}) ===`,
+      `\n=== ${t} [${r.classification.primary}] 타이밍=${r.timingScore.score} (${r.timingScore.level}) ===`,
     );
     console.log(`  price=${px?.toFixed(2)}  RSI=${rsiVal?.toFixed(0) ?? '—'}`);
     if (fib) {
@@ -52,8 +52,8 @@ for (const t of TICKERS) {
     }
 
     const techReasons = [
-      ...r.entryScore.gains,
-      ...r.entryScore.deductions,
+      ...r.timingScore.gains,
+      ...r.timingScore.deductions,
     ].filter((x) => /피보나치|MACD|볼린저/.test(x.reason));
     if (techReasons.length > 0) {
       console.log('  entry breakdown:');

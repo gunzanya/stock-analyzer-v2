@@ -59,10 +59,14 @@ function toSummary(ticker: string, r: AnalysisResult): ScreenerSummary {
     primary: r.classification.primary,
     display: r.classification.display,
     uncertain: r.classification.uncertain,
-    totalScore: r.totalScore.score,
-    totalLevel: r.totalScore.level,
-    entryScore: r.entryScore.score,
-    entryLevel: r.entryScore.level,
+    overall: r.overallScore.score,
+    overallLevel: r.overallScore.level,
+    fundamental: r.fundamentalScore.score,
+    fundamentalLevel: r.fundamentalScore.level,
+    // Rescale timing from its native 0–90 to 0–100 so all three scores
+    // share an axis when the client sorts/filters.
+    timing: Math.round((r.timingScore.score / 90) * 100),
+    timingLevel: r.timingScore.level,
     safetyTriggered: r.safetyGuard.triggered,
     name: r.fundamental.name,
     price: latest,

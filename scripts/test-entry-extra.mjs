@@ -12,12 +12,12 @@ function pickReasons(list, keys) {
 for (const t of TICKERS) {
   try {
     const r = await analyzeOne(t);
-    const all = [...r.entryScore.gains, ...r.entryScore.deductions];
+    const all = [...r.timingScore.gains, ...r.timingScore.deductions];
     const rsi = pickReasons(all, ['RSI']);
     const ema = pickReasons(all, ['EMA20']);
     const five = pickReasons(all, ['5일']);
     console.log(
-      `\n${t.padEnd(6)} [${r.classification.primary}] Entry=${r.entryScore.score} (${r.entryScore.level})`,
+      `\n${t.padEnd(6)} [${r.classification.primary}] 타이밍=${r.timingScore.score} (${r.timingScore.level})`,
     );
     for (const x of [...rsi, ...ema, ...five]) {
       const sign = x.delta > 0 ? '+' : x.delta < 0 ? '' : ' ';

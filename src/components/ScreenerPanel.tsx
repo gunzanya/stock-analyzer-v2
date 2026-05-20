@@ -6,7 +6,7 @@ import { LEVEL_KO, SCORE_TEXT, scoreLevel } from './scoreColors.js';
 type Row = ScreenerSummary;
 type Status = 'idle' | 'running' | 'done' | 'error';
 type PoolFilter = 'all' | 'large_cap' | 'small_mid' | 'tech';
-type SortKey = 'total' | 'entry';
+type SortKey = 'overall' | 'fundamental' | 'timing';
 type SortDir = 'asc' | 'desc';
 
 const FILTER_LABELS: Record<PoolFilter, string> = {
@@ -17,8 +17,9 @@ const FILTER_LABELS: Record<PoolFilter, string> = {
 };
 
 // Same grid template for header + rows so columns line up.
+// 종합 / 펀더 / 타이밍 (3 score columns) + 안전 + ⭐.
 const ROW_GRID =
-  'grid grid-cols-[minmax(140px,1.4fr)_minmax(110px,1.2fr)_90px_90px_56px_44px] items-center';
+  'grid grid-cols-[minmax(130px,1.3fr)_minmax(100px,1.1fr)_80px_80px_80px_48px_40px] items-center';
 
 function tickerHref(t: string): string {
   return `/?ticker=${encodeURIComponent(t)}`;
@@ -51,7 +52,7 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
   const [hideSafetyTriggered, setHideSafetyTriggered] = useState(false);
   const [filter, setFilter] = useState<PoolFilter>('all');
   const [scanCount, setScanCount] = useState<20 | 50 | 100>(20);
-  const [sortKey, setSortKey] = useState<SortKey>('total');
+  const [sortKey, setSortKey] = useState<SortKey>('overall');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const esRef = useRef<EventSource | null>(null);
 
@@ -143,21 +144,24 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
   const sorted = [...rows].sort((a, b) => {
     if (!a.ok && b.ok) return 1;
     if (a.ok && !b.ok) return -1;
-    const aVal = sortKey === 'total' ? (a.totalScore ?? -1) : (a.entryScore ?? -1);
-    const bVal = sortKey === 'total' ? (b.totalScore ?? -1) : (b.entryScore ?? -1);
-    return sortDir === 'desc' ? bVal - aVal : aVal - bVal;
+    const valOf = (r: Row): number =>
+      sortKey === 'overall' ? (r.overall ?? -1)
+        : sortKey === 'fundamental' ? (r.fundamental ?? -1)
+        : (r.timing ?? -1);
+    return sortDir === 'desc' ? valOf(b) - valOf(a) : valOf(a) - valOf(b);
   });
 
   const filtered = sorted.filter((r) => {
-    if (!r.ok) return !strongOnly; // failed rows: drop in strong-only mode
-    if (strongOnly && ((r.totalScore ?? 0) < 70 || (r.entryScore ?? 0) < 50)) return false;
+    if (!r.ok) return !strongOnly;
+    // Strong-buy: overall 70+ AND timing 50+ (timing is 0-100 here, rescaled).
+    if (strongOnly && ((r.overall ?? 0) < 70 || (r.timing ?? 0) < 50)) return false;
     if (hideSafetyTriggered && r.safetyTriggered) return false;
     return true;
   });
 
   const pct = progress.total > 0 ? (progress.completed / progress.total) * 100 : 0;
   const strongCount = rows.filter(
-    (r) => r.ok && (r.totalScore ?? 0) >= 70 && (r.entryScore ?? 0) >= 50,
+    (r) => r.ok && (r.overall ?? 0) >= 70 && (r.timing ?? 0) >= 50,
   ).length;
 
   return (
@@ -258,7 +262,7 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
                 onChange={(e) => setStrongOnly(e.target.checked)}
                 className="accent-indigo-500"
               />
-              <span className="text-slate-300">강력 매수만 (Total 70+ & Entry 50+)</span>
+              <span className="text-slate-300">강력 매수만 (종합 70+ & 타이밍 50+)</span>
               <span className="text-slate-500">({strongCount})</span>
             </label>
             <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
@@ -294,16 +298,22 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
               <div className="px-3 py-2 font-medium">티커</div>
               <div className="px-3 py-2 font-medium">유형</div>
               <SortHeader
-                label="Total"
-                active={sortKey === 'total'}
+                label="종합"
+                active={sortKey === 'overall'}
                 dir={sortDir}
-                onClick={() => toggleSort('total')}
+                onClick={() => toggleSort('overall')}
               />
               <SortHeader
-                label="Entry"
-                active={sortKey === 'entry'}
+                label="펀더"
+                active={sortKey === 'fundamental'}
                 dir={sortDir}
-                onClick={() => toggleSort('entry')}
+                onClick={() => toggleSort('fundamental')}
+              />
+              <SortHeader
+                label="타이밍"
+                active={sortKey === 'timing'}
+                dir={sortDir}
+                onClick={() => toggleSort('timing')}
               />
               <div className="px-3 py-2 font-medium text-center">안전</div>
               <div className="px-3 py-2 font-medium" />
@@ -396,8 +406,9 @@ function Row({
       </div>
     );
   }
-  const totalLevel = scoreLevel(row.totalScore ?? 0);
-  const entryLevel = scoreLevel(row.entryScore ?? 0);
+  const overallLevel = scoreLevel(row.overall ?? 0);
+  const fundLevel = scoreLevel(row.fundamental ?? 0);
+  const timingLevel = scoreLevel(row.timing ?? 0);
   return (
     <a
       href={tickerHref(row.ticker)}
@@ -413,17 +424,17 @@ function Row({
       <div className="px-3 py-2 text-xs text-slate-200">
         {row.uncertain ? '❓ 불확실' : typeBadge(row.primary)}
       </div>
-      <div className={`px-3 py-2 text-right font-mono font-semibold ${SCORE_TEXT[totalLevel]}`}>
-        {Math.round(row.totalScore ?? 0)}
+      <div className={`px-3 py-2 text-right font-mono font-semibold ${SCORE_TEXT[overallLevel]}`}>
+        {Math.round(row.overall ?? 0)}
         <div className="text-[10px] text-slate-500 font-normal">
-          {row.totalLevel ? LEVEL_KO[row.totalLevel] : ''}
+          {row.overallLevel ? LEVEL_KO[row.overallLevel] : ''}
         </div>
       </div>
-      <div className={`px-3 py-2 text-right font-mono font-semibold ${SCORE_TEXT[entryLevel]}`}>
-        {Math.round(row.entryScore ?? 0)}
-        <div className="text-[10px] text-slate-500 font-normal">
-          {row.entryLevel ? LEVEL_KO[row.entryLevel] : ''}
-        </div>
+      <div className={`px-3 py-2 text-right font-mono font-semibold ${SCORE_TEXT[fundLevel]}`}>
+        {Math.round(row.fundamental ?? 0)}
+      </div>
+      <div className={`px-3 py-2 text-right font-mono font-semibold ${SCORE_TEXT[timingLevel]}`}>
+        {Math.round(row.timing ?? 0)}
       </div>
       <div className="px-3 py-2 text-center">
         {row.safetyTriggered ? (
@@ -471,8 +482,8 @@ function MobileCard({
       </div>
     );
   }
-  const totalLevel = scoreLevel(row.totalScore ?? 0);
-  const entryLevel = scoreLevel(row.entryScore ?? 0);
+  const overallLevel = scoreLevel(row.overall ?? 0);
+  const timingLevel = scoreLevel(row.timing ?? 0);
   return (
     <a
       href={tickerHref(row.ticker)}
@@ -505,18 +516,18 @@ function MobileCard({
       </div>
       <div className="flex gap-4 mt-2 text-xs">
         <div>
-          <span className="text-slate-500">Total </span>
-          <span className={`font-mono font-semibold ${SCORE_TEXT[totalLevel]}`}>
-            {Math.round(row.totalScore ?? 0)}
+          <span className="text-slate-500">종합 </span>
+          <span className={`font-mono font-semibold ${SCORE_TEXT[overallLevel]}`}>
+            {Math.round(row.overall ?? 0)}
           </span>
           <span className="text-slate-500 ml-1">
-            ({row.totalLevel ? LEVEL_KO[row.totalLevel] : ''})
+            ({row.overallLevel ? LEVEL_KO[row.overallLevel] : ''})
           </span>
         </div>
         <div>
-          <span className="text-slate-500">Entry </span>
-          <span className={`font-mono font-semibold ${SCORE_TEXT[entryLevel]}`}>
-            {Math.round(row.entryScore ?? 0)}
+          <span className="text-slate-500">타이밍 </span>
+          <span className={`font-mono font-semibold ${SCORE_TEXT[timingLevel]}`}>
+            {Math.round(row.timing ?? 0)}
           </span>
         </div>
       </div>

@@ -2,7 +2,7 @@
 import { fetchFundamental, fetchPriceHistory } from '../api/fetchStock.ts';
 import { resolveBenchmarkEtf, volumeRatio, adx as adxOf, obvBearishDivergence, return30d } from '../src/lib/indicators.ts';
 import { evaluateSafetyGuard } from '../src/lib/safetyGuard.ts';
-import { computeEntryScore } from '../src/lib/entryScore.ts';
+import { computeTiming } from '../src/lib/entryScore.ts';
 
 const TICKERS = ['TOST', 'AVGO', 'LLY', 'NVDA'];
 
@@ -18,7 +18,7 @@ for (const t of TICKERS) {
       benchmarkBars: benchBars,
       benchmarkLabel: benchEtf,
     });
-    const entry = computeEntryScore({ stockBars, benchmarkBars: benchBars });
+    const entry = computeTiming({ stockBars, benchmarkBars: benchBars });
 
     // Raw indicators for inspection
     const vr = volumeRatio(stockBars);

@@ -1,13 +1,14 @@
-// TotalScore — weighted average of the 12 CANSLIM items, with weights
-// chosen per primary classification type. If the classification is blended,
-// we blend the two weight vectors proportionally.
+// Fundamental score — weighted average of the 12 CANSLIM items, with
+// weights chosen per primary classification type. If the classification
+// is blended, we blend the two weight vectors proportionally.
+// (Renamed from TotalScore; UI label is "펀더멘탈".)
 
 import type {
   CanslimKey,
   CanslimResult,
   ClassificationResult,
+  FundamentalScoreResult,
   StockType,
-  TotalScoreResult,
 } from './types.js';
 import { CANSLIM_KEYS, CANSLIM_LABELS } from './canslim.js';
 
@@ -22,17 +23,17 @@ const WEIGHTS: Record<StockType, Record<CanslimKey, number>> = {
   SPECULATIVE: { C: 8,  A: 2,  N: 15, S: 20, L: 12, I: 2, M: 10, Q: 3,  V: 4,  B: 1,  G: 5,  T: 18 },
 };
 
-function levelOf(score: number): TotalScoreResult['level'] {
+function levelOf(score: number): FundamentalScoreResult['level'] {
   if (score >= 70) return 'STRONG';
   if (score >= 50) return 'WATCH';
   if (score >= 30) return 'NEUTRAL';
   return 'AVOID';
 }
 
-export function computeTotalScore(
+export function computeFundamental(
   canslim: CanslimResult,
   classification: ClassificationResult,
-): TotalScoreResult {
+): FundamentalScoreResult {
   const scoreByKey: Record<CanslimKey, number> = {} as Record<CanslimKey, number>;
   for (const item of canslim.items) scoreByKey[item.key] = item.score;
 

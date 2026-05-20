@@ -5,8 +5,8 @@ const ticker = process.argv[2] ?? 'NVDA';
 const r = await analyzeOne(ticker);
 console.log(`=== ${r.fundamental.ticker} (${r.fundamental.name}) ===`);
 console.log(`Classification: ${r.classification.display} · confidence ${r.classification.confidence}`);
-console.log(`TotalScore:     ${r.totalScore.score} (${r.totalScore.level})`);
-console.log(`EntryScore:     ${r.entryScore.score} (${r.entryScore.level})`);
+console.log(`Fundamental:     ${r.fundamentalScore.score} (${r.fundamentalScore.level})`);
+console.log(`Timing:     ${r.timingScore.score} (${r.timingScore.level})`);
 console.log(`Safety:         ${r.safetyGuard.triggered ? '🛡️ ' + r.safetyGuard.sectorContext : 'OK'}`);
 console.log('\n--- CANSLIM 12 ---');
 for (const item of r.canslim.items) {
@@ -19,11 +19,11 @@ console.log(`  Entry ${r.strategy.entry} → Stop ${r.strategy.stop} → T1 ${r.
 console.log(`  ATR14: ${r.strategy.atr14}`);
 console.log(`  Rule:  ${r.strategy.stopRule}`);
 console.log('\n--- Top contributors ---');
-for (const c of r.totalScore.topContributors) {
+for (const c of r.fundamentalScore.topContributors) {
   console.log(`  ${c.label}: score ${c.score} × weight ${c.weight}%`);
 }
 console.log('\n--- Bottom contributors ---');
-for (const c of r.totalScore.bottomContributors) {
+for (const c of r.fundamentalScore.bottomContributors) {
   console.log(`  ${c.label}: score ${c.score} × weight ${c.weight}%`);
 }
 console.log('\n--- Risk factors ---');

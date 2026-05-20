@@ -14,9 +14,10 @@ import {
   volumeRatio,
 } from '../src/lib/indicators.js';
 import { evaluateSafetyGuard } from '../src/lib/safetyGuard.js';
-import { applyCoherenceFloor, computeEntryScore } from '../src/lib/entryScore.js';
+import { applyCoherenceFloor, computeTiming } from '../src/lib/entryScore.js';
 import { computeCanslim } from '../src/lib/canslim.js';
-import { computeTotalScore } from '../src/lib/totalScore.js';
+import { computeFundamental } from '../src/lib/totalScore.js';
+import { computeOverall } from '../src/lib/overallScore.js';
 import { computeStrategy } from '../src/lib/strategy.js';
 import { getTypeInsight } from '../src/lib/typeInsights.js';
 import { extractRiskFactors } from '../src/lib/riskFactors.js';
@@ -64,8 +65,8 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
         excessVsSector: null,
       };
 
-  const entryScore = hasPrices
-    ? computeEntryScore({
+  const timingScore = hasPrices
+    ? computeTiming({
         stockBars,
         benchmarkBars: benchBars,
         absoluteMode: isKoreanTicker,
@@ -113,8 +114,9 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     volumeRatio: vr,
     return90d: r90,
   });
-  const totalScore = computeTotalScore(canslim, classification);
-  const adjustedEntry = applyCoherenceFloor(entryScore, totalScore.score);
+  const fundamentalScore = computeFundamental(canslim, classification);
+  const adjustedTiming = applyCoherenceFloor(timingScore, fundamentalScore.score);
+  const overallScore = computeOverall(fundamentalScore, adjustedTiming);
   const strategy = hasPrices
     ? computeStrategy(stockBars, classification)
     : {
@@ -143,8 +145,9 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
   return {
     fundamental: fund,
     classification,
-    entryScore: adjustedEntry,
-    totalScore,
+    timingScore: adjustedTiming,
+    fundamentalScore,
+    overallScore,
     canslim,
     strategy,
     typeInsight,

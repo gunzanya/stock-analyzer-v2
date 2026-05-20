@@ -14,10 +14,13 @@ export interface ScreenerSummary {
   primary?: AnalysisResult['classification']['primary'];
   display?: string;
   uncertain?: boolean;
-  totalScore?: number;
-  totalLevel?: AnalysisResult['totalScore']['level'];
-  entryScore?: number;
-  entryLevel?: AnalysisResult['entryScore']['level'];
+  // Scores are all 0–100 (timing is pre-rescaled from its 0–90 native range).
+  overall?: number;
+  overallLevel?: AnalysisResult['overallScore']['level'];
+  fundamental?: number;
+  fundamentalLevel?: AnalysisResult['fundamentalScore']['level'];
+  timing?: number;
+  timingLevel?: AnalysisResult['timingScore']['level'];
   safetyTriggered?: boolean;
   name?: string;
   price?: number | null;

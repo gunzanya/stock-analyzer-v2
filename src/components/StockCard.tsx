@@ -6,7 +6,8 @@ import type {
   StrategyResult,
 } from '../lib/types.js';
 import { STOCK_TYPE_LABELS } from '../lib/types.js';
-import { computeTotalScore } from '../lib/totalScore.js';
+import { computeFundamental } from '../lib/totalScore.js';
+import { computeOverall } from '../lib/overallScore.js';
 import { computeStrategy } from '../lib/strategy.js';
 import { getTypeInsight } from '../lib/typeInsights.js';
 import { TotalScoreCard } from './TotalScoreCard.js';
@@ -89,10 +90,11 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
   const effectiveType: StockType = override ?? cls.primary;
   const isOverride = override !== null;
 
-  const { totalScore, typeInsight, strategy } = useMemo(() => {
+  const { fundamentalScore, overallScore, typeInsight, strategy } = useMemo(() => {
     if (!isOverride) {
       return {
-        totalScore: result.totalScore,
+        fundamentalScore: result.fundamentalScore,
+        overallScore: result.overallScore,
         typeInsight: result.typeInsight,
         strategy: result.strategy,
       };
@@ -111,8 +113,10 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
       result.priceBars.length >= 50
         ? computeStrategy(result.priceBars, syntheticCls)
         : result.strategy;
+    const fund = computeFundamental(result.canslim, syntheticCls);
     return {
-      totalScore: computeTotalScore(result.canslim, syntheticCls),
+      fundamentalScore: fund,
+      overallScore: computeOverall(fund, result.timingScore),
       typeInsight: getTypeInsight(override!),
       strategy: overrideStrategy,
     };
@@ -121,7 +125,9 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
     override,
     result.canslim,
     result.priceBars,
-    result.totalScore,
+    result.fundamentalScore,
+    result.overallScore,
+    result.timingScore,
     result.typeInsight,
     result.strategy,
     cls.candidates,
@@ -310,7 +316,11 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
 
       {/* Score row */}
       <div className="px-5 pt-4">
-        <TotalScoreCard total={totalScore} entry={result.entryScore} />
+        <TotalScoreCard
+          overall={overallScore}
+          fundamental={fundamentalScore}
+          timing={result.timingScore}
+        />
       </div>
 
       {/* Strategy */}

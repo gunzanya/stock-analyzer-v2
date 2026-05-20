@@ -3,7 +3,7 @@
 //
 // Gains and deductions are recorded with reasons for the UI.
 
-import type { EntryScoreResult, PriceBar, StockType } from './types.js';
+import type { TimingScoreResult, PriceBar, StockType } from './types.js';
 import {
   adx as adxOf,
   bollingerBands,
@@ -24,7 +24,7 @@ import {
 const MAX_SCORE = 90;
 const MAX_TOTAL_DEDUCTION = -30; // cap on the sum of deductions
 
-export interface EntryScoreInputs {
+export interface TimingScoreInputs {
   stockBars: PriceBar[];
   benchmarkBars: PriceBar[];
   absoluteMode?: boolean;
@@ -34,7 +34,7 @@ export interface EntryScoreInputs {
   primaryType?: StockType | null;
 }
 
-export function computeEntryScore(inputs: EntryScoreInputs): EntryScoreResult {
+export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
   const { stockBars, benchmarkBars, absoluteMode, primaryType } = inputs;
   const gains: { reason: string; delta: number }[] = [];
   const deductions: { reason: string; delta: number }[] = [];
@@ -294,7 +294,7 @@ export function computeEntryScore(inputs: EntryScoreInputs): EntryScoreResult {
   const deductionSum = deductions.reduce((a, d) => a + d.delta, 0);
   const score = Math.max(0, Math.min(MAX_SCORE, gainSum + deductionSum));
 
-  let level: EntryScoreResult['level'];
+  let level: TimingScoreResult['level'];
   if (score >= 70) level = 'STRONG';
   else if (score >= 50) level = 'WATCH';
   else if (score >= 30) level = 'NEUTRAL';
@@ -305,42 +305,42 @@ export function computeEntryScore(inputs: EntryScoreInputs): EntryScoreResult {
 
 /** Post-processing coherence floor: a fundamentally OK stock shouldn't
  *  show an extreme Entry of 0–10. Tiered floors prevent the case where
- *  MSFT (Total 62, Entry 0) or PEP (Total 47, Entry 17) collapse to near-zero
+ *  MSFT (Fund 62, Timing 0) or PEP (Fund 47, Timing 17) collapse to near-zero
  *  just because the setup is poor.
- *    Total ≥ 75 → Entry ≥ 25 (level NEUTRAL — company is solid)
- *    Total ≥ 60 → Entry ≥ 20 (level stays AVOID — fundamentals OK, setup bad)
- *    Total ≥ 50 → Entry ≥ 15 (level stays AVOID) */
+ *    Fund ≥ 75 → Timing ≥ 25 (level NEUTRAL — company is solid)
+ *    Fund ≥ 60 → Timing ≥ 20 (level stays AVOID — fundamentals OK, setup bad)
+ *    Fund ≥ 50 → Timing ≥ 15 (level stays AVOID) */
 export function applyCoherenceFloor(
-  entry: EntryScoreResult,
-  totalScoreValue: number,
-): EntryScoreResult {
+  timing: TimingScoreResult,
+  fundamentalScoreValue: number,
+): TimingScoreResult {
   let floor = 0;
-  let flooredLevel: EntryScoreResult['level'] | null = null;
-  if (totalScoreValue >= 75) {
+  let flooredLevel: TimingScoreResult['level'] | null = null;
+  if (fundamentalScoreValue >= 75) {
     floor = 25;
     flooredLevel = 'NEUTRAL';
-  } else if (totalScoreValue >= 60) {
+  } else if (fundamentalScoreValue >= 60) {
     floor = 20;
     flooredLevel = 'AVOID';
-  } else if (totalScoreValue >= 50) {
+  } else if (fundamentalScoreValue >= 50) {
     floor = 15;
     flooredLevel = 'AVOID';
   }
 
-  if (floor > 0 && entry.score < floor) {
-    const before = entry.score;
+  if (floor > 0 && timing.score < floor) {
+    const before = timing.score;
     return {
-      ...entry,
+      ...timing,
       score: floor,
       gains: [
-        ...entry.gains,
+        ...timing.gains,
         {
-          reason: `TotalScore ${totalScoreValue} 보정 → Entry ${before} → ${floor} (펀더 양호, 자리만 나쁨)`,
+          reason: `펀더멘탈 ${fundamentalScoreValue} 보정 → 타이밍 ${before} → ${floor} (펀더 양호, 자리만 나쁨)`,
           delta: floor - before,
         },
       ],
       level: flooredLevel!,
     };
   }
-  return entry;
+  return timing;
 }

@@ -9,11 +9,11 @@ const TICKERS = ['GOOG', 'V', 'LLY', 'BA', 'AGX'];
 for (const t of TICKERS) {
   try {
     const r = await analyzeOne(t);
-    const all = [...r.entryScore.gains, ...r.entryScore.deductions];
+    const all = [...r.timingScore.gains, ...r.timingScore.deductions];
     const vol = all.filter((x) => /거래량/.test(x.reason) && !/볼린저/.test(x.reason));
     const adx = all.filter((x) => /ADX/.test(x.reason));
     console.log(
-      `\n${t.padEnd(5)} Entry=${r.entryScore.score} (${r.entryScore.level})  ADX=${r.indicators.adx?.toFixed(0) ?? '—'}  vol=${r.indicators.volumeRatio?.toFixed(2) ?? '—'}x`,
+      `\n${t.padEnd(5)} 타이밍=${r.timingScore.score} (${r.timingScore.level})  ADX=${r.indicators.adx?.toFixed(0) ?? '—'}  vol=${r.indicators.volumeRatio?.toFixed(2) ?? '—'}x`,
     );
     for (const x of [...vol, ...adx]) {
       const sign = x.delta > 0 ? '+' : '';

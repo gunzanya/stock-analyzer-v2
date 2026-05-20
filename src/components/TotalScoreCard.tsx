@@ -1,24 +1,32 @@
-import type { EntryScoreResult, TotalScoreResult } from '../lib/types.js';
+import type {
+  FundamentalScoreResult,
+  OverallScoreResult,
+  TimingScoreResult,
+} from '../lib/types.js';
 import { LEVEL_KO, SCORE_COLOR, SCORE_TEXT, scoreLevel } from './scoreColors.js';
 
 interface Props {
-  total: TotalScoreResult;
-  entry: EntryScoreResult;
+  overall: OverallScoreResult;
+  fundamental: FundamentalScoreResult;
+  timing: TimingScoreResult;
 }
 
-// SVG circular gauge
+// SVG circular gauge.
 function Gauge({
   score,
-  size = 110,
+  size,
+  stroke,
   label,
   level,
+  scoreFontClass = 'text-3xl',
 }: {
   score: number;
-  size?: number;
+  size: number;
+  stroke: number;
   label: string;
-  level: TotalScoreResult['level'];
+  level: 'STRONG' | 'WATCH' | 'NEUTRAL' | 'AVOID';
+  scoreFontClass?: string;
 }) {
-  const stroke = 9;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const lvl = scoreLevel(score);
@@ -50,7 +58,7 @@ function Gauge({
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className={`text-3xl font-bold tabular-nums ${SCORE_TEXT[lvl]}`}>
+          <span className={`font-bold tabular-nums ${scoreFontClass} ${SCORE_TEXT[lvl]}`}>
             {score}
           </span>
           <span className="text-[10px] text-slate-500">/ 100</span>
@@ -64,26 +72,48 @@ function Gauge({
   );
 }
 
-export function TotalScoreCard({ total, entry }: Props) {
+export function TotalScoreCard({ overall, fundamental, timing }: Props) {
+  // Timing is natively 0–90 — rescale to 0–100 for display consistency.
+  const timingPct = Math.round((timing.score / 90) * 100);
   return (
     <section className="rounded-xl bg-[#0f172a] border border-[#1e293b] p-5">
       <h3 className="text-xs font-semibold text-slate-400 mb-4 tracking-wider uppercase">
         종합 점수
       </h3>
-      <div className="flex justify-around items-center gap-3">
-        <Gauge score={total.score} level={total.level} label="TotalScore" />
-        <div className="text-slate-700">|</div>
+      <div className="flex flex-col items-center gap-4">
         <Gauge
-          score={Math.round((entry.score / 90) * 100)}
-          level={entry.level}
-          label="EntryScore"
+          score={overall.score}
+          level={overall.level}
+          label="종합"
+          size={150}
+          stroke={11}
+          scoreFontClass="text-4xl"
         />
+        <div className="flex items-center gap-6 sm:gap-8 pt-2">
+          <Gauge
+            score={fundamental.score}
+            level={fundamental.level}
+            label="펀더멘탈"
+            size={88}
+            stroke={7}
+            scoreFontClass="text-2xl"
+          />
+          <div className="text-slate-700 text-2xl">+</div>
+          <Gauge
+            score={timingPct}
+            level={timing.level}
+            label="타이밍"
+            size={88}
+            stroke={7}
+            scoreFontClass="text-2xl"
+          />
+        </div>
       </div>
       <div className="mt-4 pt-4 border-t border-[#1e293b] grid grid-cols-2 gap-2 text-[11px]">
         <div>
-          <p className="text-slate-500 mb-1">상위 기여 ↑</p>
+          <p className="text-slate-500 mb-1">상위 기여 ↑ <span className="text-slate-600">(펀더)</span></p>
           <ul className="space-y-0.5">
-            {total.topContributors.map((c) => (
+            {fundamental.topContributors.map((c) => (
               <li key={c.key} className="flex justify-between text-slate-300">
                 <span className="truncate">{c.label}</span>
                 <span className="text-emerald-400 ml-2">{c.score}×{c.weight}%</span>
@@ -92,9 +122,9 @@ export function TotalScoreCard({ total, entry }: Props) {
           </ul>
         </div>
         <div>
-          <p className="text-slate-500 mb-1">하위 기여 ↓</p>
+          <p className="text-slate-500 mb-1">하위 기여 ↓ <span className="text-slate-600">(펀더)</span></p>
           <ul className="space-y-0.5">
-            {total.bottomContributors.map((c) => (
+            {fundamental.bottomContributors.map((c) => (
               <li key={c.key} className="flex justify-between text-slate-300">
                 <span className="truncate">{c.label}</span>
                 <span className="text-red-400 ml-2">{c.score}×{c.weight}%</span>
@@ -103,29 +133,26 @@ export function TotalScoreCard({ total, entry }: Props) {
           </ul>
         </div>
       </div>
-      <EntryBreakdown entry={entry} />
+      <TimingBreakdown timing={timing} />
     </section>
   );
 }
 
-function EntryBreakdown({ entry }: { entry: EntryScoreResult }) {
-  // Gains first (largest +Δ on top), then deductions (largest −Δ on bottom).
-  // Zero-delta entries are informational (e.g. "RSI 67 (65-70 중립)") — keep
-  // them but sort to the middle so non-neutral items dominate visually.
+function TimingBreakdown({ timing }: { timing: TimingScoreResult }) {
   const sorted = [
-    ...entry.gains.slice().sort((a, b) => b.delta - a.delta),
-    ...entry.deductions.slice().sort((a, b) => a.delta - b.delta),
+    ...timing.gains.slice().sort((a, b) => b.delta - a.delta),
+    ...timing.deductions.slice().sort((a, b) => a.delta - b.delta),
   ];
   if (sorted.length === 0) return null;
-  const gainSum = entry.gains.reduce((a, g) => a + g.delta, 0);
-  const lossSum = entry.deductions.reduce((a, d) => a + d.delta, 0);
+  const gainSum = timing.gains.reduce((a, g) => a + g.delta, 0);
+  const lossSum = timing.deductions.reduce((a, d) => a + d.delta, 0);
 
   return (
     <details className="mt-3 pt-3 border-t border-[#1e293b] text-[11px] group">
       <summary className="cursor-pointer list-none flex items-center justify-between text-slate-400 hover:text-slate-200 select-none">
         <span className="flex items-center gap-1.5">
           <span className="text-[9px] transition-transform group-open:rotate-90">▶</span>
-          <span>EntryScore 점수 상세</span>
+          <span>타이밍 점수 상세</span>
         </span>
         <span className="text-[10px] text-slate-500 tabular-nums">
           <span className="text-emerald-400">+{gainSum}</span>

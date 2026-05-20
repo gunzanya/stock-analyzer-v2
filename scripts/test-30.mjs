@@ -6,7 +6,7 @@ import { fetchFundamental, fetchPriceHistory } from '../api/fetchStock.ts';
 import { classify } from '../src/lib/typeWeights.ts';
 import { resolveBenchmarkEtf } from '../src/lib/indicators.ts';
 import { evaluateSafetyGuard } from '../src/lib/safetyGuard.ts';
-import { computeEntryScore } from '../src/lib/entryScore.ts';
+import { computeTiming } from '../src/lib/entryScore.ts';
 
 // Each row: [ticker, expectedPrimaries[], note]
 //   expectedPrimaries accepts primary OR secondary types per spec
@@ -80,7 +80,7 @@ for (const [ticker, expected, note] of CASES) {
         benchmarkBars: benchBars,
         benchmarkLabel: resolveBenchmarkEtf(fund),
       });
-      const entry = computeEntryScore({ stockBars, benchmarkBars: benchBars });
+      const entry = computeTiming({ stockBars, benchmarkBars: benchBars });
       entryStr = `Entry ${entry.score} (${entry.level})`;
       if (safety.triggered) safetyStr = `🛡️${safety.sectorContext?.slice(0, 30) || ''}`;
     }

@@ -119,8 +119,9 @@ export interface ClassificationResult {
   uncertain: boolean;              // true when even the best type < 30
 }
 
-// Entry score
-export interface EntryScoreResult {
+// Timing score — displayed in UI as "타이밍". Captures short-term technical
+// setup: RS, volume, ADX, RSI, EMA20 proximity, candle pattern, Fib/MACD/BB.
+export interface TimingScoreResult {
   score: number;            // 0–90 (capped)
   gains: { reason: string; delta: number }[];
   deductions: { reason: string; delta: number }[];
@@ -175,14 +176,22 @@ export interface CanslimResult {
   items: CanslimItem[]; // length 12, in fixed order
 }
 
-// ---- Total score (weighted by classification) ----
+// ---- Fundamental score (CANSLIM weighted by stock type) ----
+// Displayed in UI as "펀더멘탈".
 
-export interface TotalScoreResult {
+export interface FundamentalScoreResult {
   score: number;        // 0-100 weighted average across CANSLIM
   level: 'STRONG' | 'WATCH' | 'NEUTRAL' | 'AVOID';
-  // top 3 contributors and bottom 3 contributors
   topContributors: { key: CanslimKey; label: string; score: number; weight: number }[];
   bottomContributors: { key: CanslimKey; label: string; score: number; weight: number }[];
+}
+
+// ---- Overall score (weighted blend of fundamental + timing) ----
+// Displayed in UI as "종합".
+
+export interface OverallScoreResult {
+  score: number;  // 0-100, = fundamental.score * 0.55 + (timing.score/90*100) * 0.45
+  level: 'STRONG' | 'WATCH' | 'NEUTRAL' | 'AVOID';
 }
 
 // ---- Trading strategy ----
@@ -219,8 +228,9 @@ export interface RiskFactor {
 export interface AnalysisResult {
   fundamental: FundamentalData;
   classification: ClassificationResult;
-  entryScore: EntryScoreResult;
-  totalScore: TotalScoreResult;
+  timingScore: TimingScoreResult;
+  fundamentalScore: FundamentalScoreResult;
+  overallScore: OverallScoreResult;
   canslim: CanslimResult;
   strategy: StrategyResult;
   typeInsight: TypeInsight;
