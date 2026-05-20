@@ -53,6 +53,8 @@ async function buildPool(filter: ScreenerFilter): Promise<string[]> {
 
 function toSummary(ticker: string, r: AnalysisResult): ScreenerSummary {
   const latest = r.priceBars[0]?.close ?? null;
+  const timingPct = Math.round((r.timingScore.score / 90) * 100);
+  const breakoutReady = isBreakoutReady(r);
   return {
     ticker,
     ok: true,
@@ -65,12 +67,27 @@ function toSummary(ticker: string, r: AnalysisResult): ScreenerSummary {
     fundamentalLevel: r.fundamentalScore.level,
     // Rescale timing from its native 0–90 to 0–100 so all three scores
     // share an axis when the client sorts/filters.
-    timing: Math.round((r.timingScore.score / 90) * 100),
+    timing: timingPct,
     timingLevel: r.timingScore.level,
     safetyTriggered: r.safetyGuard.triggered,
+    breakoutReady,
     name: r.fundamental.name,
     price: latest,
   };
+}
+
+/** 돌파 대기 — fundamentals strong, timing not yet hot, ADX building, no
+ *  obvious distribution or sector blowup. The trade is to enter when ADX
+ *  crosses 25 (trend confirms). */
+function isBreakoutReady(r: AnalysisResult): boolean {
+  const timingPct = (r.timingScore.score / 90) * 100;
+  const adx = r.indicators.adx;
+  if (r.fundamentalScore.score < 70) return false;
+  if (timingPct < 25 || timingPct > 55) return false;
+  if (adx == null || adx < 15 || adx > 25) return false;
+  if (r.indicators.obvDivergence === true) return false;
+  if (r.safetyGuard.triggered) return false;
+  return true;
 }
 
 /** Stream SSE-formatted strings via a callback so this works in both Vercel

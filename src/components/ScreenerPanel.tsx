@@ -5,7 +5,7 @@ import { LEVEL_KO, SCORE_TEXT, scoreLevel } from './scoreColors.js';
 
 type Row = ScreenerSummary;
 type Status = 'idle' | 'running' | 'done' | 'error';
-type PoolFilter = 'all' | 'large_cap' | 'small_mid' | 'tech';
+type PoolFilter = 'all' | 'large_cap' | 'small_mid' | 'tech' | 'breakout';
 type SortKey = 'overall' | 'fundamental' | 'timing';
 type SortDir = 'asc' | 'desc';
 
@@ -14,6 +14,7 @@ const FILTER_LABELS: Record<PoolFilter, string> = {
   large_cap: '대형주만 ($10B+)',
   small_mid: '중소형주',
   tech: '테크',
+  breakout: '🔍 돌파 대기',
 };
 
 // Same grid template for header + rows so columns line up.
@@ -152,7 +153,9 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
   });
 
   const filtered = sorted.filter((r) => {
-    if (!r.ok) return !strongOnly;
+    if (!r.ok) return !strongOnly && filter !== 'breakout';
+    // Breakout filter: only rows the server flagged as 돌파 대기.
+    if (filter === 'breakout' && !r.breakoutReady) return false;
     // Strong-buy: overall 70+ AND timing 50+ (timing is 0-100 here, rescaled).
     if (strongOnly && ((r.overall ?? 0) < 70 || (r.timing ?? 0) < 50)) return false;
     if (hideSafetyTriggered && r.safetyTriggered) return false;

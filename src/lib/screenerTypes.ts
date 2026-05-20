@@ -22,6 +22,11 @@ export interface ScreenerSummary {
   timing?: number;
   timingLevel?: AnalysisResult['timingScore']['level'];
   safetyTriggered?: boolean;
+  /** True when the ticker matches the "돌파 대기" pattern: solid fundamentals
+   *  (펀더 ≥70), middling timing (25–55), ADX 15–25 (trend forming), no OBV
+   *  divergence, no safety trigger. Set on every row regardless of the
+   *  selected filter; client uses it when the breakout filter is active. */
+  breakoutReady?: boolean;
   name?: string;
   price?: number | null;
 }

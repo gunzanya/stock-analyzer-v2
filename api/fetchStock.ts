@@ -592,7 +592,7 @@ async function fetchUsdKrwRate(): Promise<number | null> {
 
 // ---- Dynamic pool builder (Yahoo screener) -----------------------------
 
-export type ScreenerFilter = 'all' | 'large_cap' | 'small_mid' | 'tech';
+export type ScreenerFilter = 'all' | 'large_cap' | 'small_mid' | 'tech' | 'breakout';
 
 interface ScreenerHit {
   symbol: string;
@@ -624,18 +624,24 @@ type ScrId = Parameters<typeof yahooFinance.screener>[0] extends infer T
 // Map our filter modes to Yahoo's predefined scrIds. Multiple scrIds per
 // mode get merged + deduped to widen the pool beyond a single screen's
 // ~25 results. `all` unions every scrId we use anywhere.
+const ALL_SCR_IDS: ScrId[] = [
+  'most_actives',
+  'day_gainers',
+  'day_losers',
+  'undervalued_large_caps',
+  'portfolio_anchors',
+  'small_cap_gainers',
+  'aggressive_small_caps',
+  'undervalued_growth_stocks',
+  'growth_technology_stocks',
+];
+
 const SCR_IDS: Record<ScreenerFilter, ScrId[]> = {
-  all: [
-    'most_actives',
-    'day_gainers',
-    'day_losers',
-    'undervalued_large_caps',
-    'portfolio_anchors',
-    'small_cap_gainers',
-    'aggressive_small_caps',
-    'undervalued_growth_stocks',
-    'growth_technology_stocks',
-  ],
+  all: ALL_SCR_IDS,
+  // Breakout filter uses the broadest pool — the per-ticker breakout
+  // criteria (ADX 15-25, fundamentals 70+, etc.) are evaluated client-side
+  // on a flag set by the server, so pool size is the only thing to pick here.
+  breakout: ALL_SCR_IDS,
   large_cap: ['undervalued_large_caps', 'portfolio_anchors', 'most_actives'],
   small_mid: ['small_cap_gainers', 'aggressive_small_caps', 'undervalued_growth_stocks'],
   tech: ['growth_technology_stocks'],
