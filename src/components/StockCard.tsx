@@ -3,9 +3,11 @@ import type {
   AnalysisResult,
   ClassificationResult,
   StockType,
+  StrategyResult,
 } from '../lib/types.js';
 import { STOCK_TYPE_LABELS } from '../lib/types.js';
 import { computeTotalScore } from '../lib/totalScore.js';
+import { computeStrategy } from '../lib/strategy.js';
 import { getTypeInsight } from '../lib/typeInsights.js';
 import { TotalScoreCard } from './TotalScoreCard.js';
 import { CanslimBars } from './CanslimBars.js';
@@ -24,6 +26,24 @@ const STOCK_TYPE_ORDER: StockType[] = [
   'ASSET_PLAY',
   'SPECULATIVE',
 ];
+
+const FX_FALLBACK_USDKRW = 1380;
+
+type DisplayCurrency = 'USD' | 'KRW';
+
+function convertPrice(
+  value: number | null,
+  from: string | null,
+  to: DisplayCurrency,
+  rate: number,
+): number | null {
+  if (value == null) return null;
+  const fromU = (from ?? 'USD').toUpperCase();
+  if (fromU === to) return value;
+  if (fromU === 'USD' && to === 'KRW') return value * rate;
+  if (fromU === 'KRW' && to === 'USD') return value / rate;
+  return value;
+}
 
 function formatPct(v: number | null | undefined, digits = 1): string {
   if (v == null || !Number.isFinite(v)) return '—';
@@ -58,14 +78,22 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
   const cls = result.classification;
   const ind = result.indicators;
 
+  const nativeCurrency: DisplayCurrency =
+    (f.currency ?? 'USD').toUpperCase() === 'KRW' ? 'KRW' : 'USD';
+  const [displayCurrency, setDisplayCurrency] =
+    useState<DisplayCurrency>(nativeCurrency);
+  const fxRate = result.usdKrwRate ?? FX_FALLBACK_USDKRW;
+  const fxFallbackUsed = result.usdKrwRate == null;
+
   const effectiveType: StockType = override ?? cls.primary;
   const isOverride = override !== null;
 
-  const { totalScore, typeInsight } = useMemo(() => {
+  const { totalScore, typeInsight, strategy } = useMemo(() => {
     if (!isOverride) {
       return {
         totalScore: result.totalScore,
         typeInsight: result.typeInsight,
+        strategy: result.strategy,
       };
     }
     const syntheticCls: ClassificationResult = {
@@ -78,18 +106,44 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
       display: '',
       uncertain: false,
     };
+    const overrideStrategy: StrategyResult =
+      result.priceBars.length >= 50
+        ? computeStrategy(result.priceBars, syntheticCls)
+        : result.strategy;
     return {
       totalScore: computeTotalScore(result.canslim, syntheticCls),
       typeInsight: getTypeInsight(override!),
+      strategy: overrideStrategy,
     };
   }, [
     isOverride,
     override,
     result.canslim,
+    result.priceBars,
     result.totalScore,
     result.typeInsight,
+    result.strategy,
     cls.candidates,
   ]);
+
+  const displayStrategy: StrategyResult = useMemo(() => {
+    if (displayCurrency === nativeCurrency) return strategy;
+    return {
+      ...strategy,
+      entry: convertPrice(strategy.entry, nativeCurrency, displayCurrency, fxRate),
+      stop: convertPrice(strategy.stop, nativeCurrency, displayCurrency, fxRate),
+      target1: convertPrice(strategy.target1, nativeCurrency, displayCurrency, fxRate),
+      target2: convertPrice(strategy.target2, nativeCurrency, displayCurrency, fxRate),
+    };
+  }, [strategy, displayCurrency, nativeCurrency, fxRate]);
+
+  const displayPrice = convertPrice(
+    f.price,
+    nativeCurrency,
+    displayCurrency,
+    fxRate,
+  );
+  const canToggleFx = nativeCurrency === 'USD' || nativeCurrency === 'KRW';
 
   return (
     <article className="flex flex-col rounded-2xl bg-[#0f172a] border border-[#1e293b] overflow-hidden">
@@ -126,10 +180,45 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
             </p>
           </div>
           <div className="text-right flex-shrink-0">
-            <p className="text-2xl font-bold tabular-nums text-slate-100">
-              {f.price != null ? f.price.toFixed(2) : '—'}
+            <div className="flex items-center justify-end gap-1.5">
+              <p className="text-2xl font-bold tabular-nums text-slate-100">
+                {displayPrice != null
+                  ? displayCurrency === 'KRW'
+                    ? Math.round(displayPrice).toLocaleString()
+                    : displayPrice.toFixed(2)
+                  : '—'}
+              </p>
+              {canToggleFx && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDisplayCurrency((c) => (c === 'USD' ? 'KRW' : 'USD'))
+                  }
+                  className="min-h-[28px] min-w-[28px] px-1.5 rounded-md border border-[#1e293b] bg-[#0a0f1a] text-xs text-slate-300 hover:bg-[#1e293b] active:bg-[#1e293b]/70 transition-colors"
+                  aria-label={
+                    displayCurrency === 'USD'
+                      ? 'KRW로 환산'
+                      : 'USD로 환산'
+                  }
+                  title={
+                    fxFallbackUsed
+                      ? `1 USD = ${FX_FALLBACK_USDKRW}원 (기본값)`
+                      : `1 USD = ${Math.round(fxRate).toLocaleString()}원`
+                  }
+                >
+                  {displayCurrency === 'USD' ? '₩' : '💲'}
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] text-slate-500">
+              {displayCurrency}
+              {displayCurrency !== nativeCurrency && (
+                <span className="ml-1 text-slate-600">
+                  · 환율 {Math.round(fxRate).toLocaleString()}
+                  {fxFallbackUsed && ' (기본)'}
+                </span>
+              )}
             </p>
-            <p className="text-[10px] text-slate-500">{f.currency ?? 'USD'}</p>
           </div>
         </div>
         <div className="mt-3 space-y-2">
@@ -225,7 +314,7 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
 
       {/* Strategy */}
       <div className="px-5 pt-4">
-        <StrategyCard strategy={result.strategy} currency={f.currency} />
+        <StrategyCard strategy={displayStrategy} currency={displayCurrency} />
       </div>
 
       {/* Price chart */}

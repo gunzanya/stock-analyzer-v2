@@ -401,4 +401,35 @@ async function fetchPriceHistory(
   return bars.reverse();
 }
 
-export { fetchFundamental, fetchPriceHistory };
+/** Latest USD/KRW spot from Yahoo Finance, or null on failure. */
+async function fetchUsdKrwRate(): Promise<number | null> {
+  try {
+    const q = (await yahooFinance.quote('USDKRW=X', {}, { validateResult: false })) as
+      | { regularMarketPrice?: number }
+      | null;
+    const r = q?.regularMarketPrice;
+    if (typeof r === 'number' && Number.isFinite(r) && r > 0) return r;
+  } catch {
+    // fall through
+  }
+  try {
+    const out = (await yahooFinance.chart(
+      'USDKRW=X',
+      {
+        period1: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        interval: '1d',
+      },
+      { validateResult: false },
+    )) as { quotes?: Array<{ close?: number }> } | null;
+    const quotes = out?.quotes ?? [];
+    for (let i = quotes.length - 1; i >= 0; i--) {
+      const c = quotes[i].close;
+      if (typeof c === 'number' && Number.isFinite(c) && c > 0) return c;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+export { fetchFundamental, fetchPriceHistory, fetchUsdKrwRate };

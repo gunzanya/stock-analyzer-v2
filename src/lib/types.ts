@@ -235,4 +235,5 @@ export interface AnalysisResult {
     sma200: number | null;
   };
   priceBars: PriceBar[]; // for chart (last ~130 days)
+  usdKrwRate: number | null; // USD/KRW spot, null on fetch failure
 }

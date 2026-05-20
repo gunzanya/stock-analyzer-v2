@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { fetchFundamental, fetchPriceHistory } from './fetchStock.js';
+import { fetchFundamental, fetchPriceHistory, fetchUsdKrwRate } from './fetchStock.js';
 import { classify } from '../src/lib/typeWeights.js';
 import {
   adx as adxOf,
@@ -28,6 +28,7 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
 
   let stockBars: Awaited<ReturnType<typeof fetchPriceHistory>> = [];
   let benchBars: Awaited<ReturnType<typeof fetchPriceHistory>> = [];
+  let usdKrwRate: number | null = null;
   try {
     stockBars = await fetchPriceHistory(ticker);
   } catch (err) {
@@ -37,6 +38,11 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     benchBars = await fetchPriceHistory(benchEtf);
   } catch (err) {
     fund.warnings.push(`benchmark (${benchEtf}) price history failed: ${(err as Error).message}`);
+  }
+  try {
+    usdKrwRate = await fetchUsdKrwRate();
+  } catch {
+    usdKrwRate = null;
   }
 
   const classification = classify(fund);
@@ -133,6 +139,7 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     safetyGuard,
     indicators,
     priceBars,
+    usdKrwRate,
   };
 }
 
