@@ -21,6 +21,16 @@ import {
 
 interface Props {
   bars: PriceBar[];
+  /** Native currency of the underlying price bars — controls number
+   *  formatting on the Y-axis, Fib labels, and tooltip. */
+  currency?: 'USD' | 'KRW';
+}
+
+/** USD → 2 decimals; KRW → integer with thousands separators. */
+function formatPrice(v: number, currency: 'USD' | 'KRW'): string {
+  if (!Number.isFinite(v)) return '';
+  if (currency === 'KRW') return Math.round(v).toLocaleString('en-US');
+  return v.toFixed(2);
 }
 
 interface ChartRow {
@@ -99,7 +109,7 @@ function computeChartData(bars: PriceBar[]): ChartData {
   return { rows, fib };
 }
 
-export function PriceChart({ bars }: Props) {
+export function PriceChart({ bars, currency = 'USD' }: Props) {
   const [showFib, setShowFib] = useState(true);
   const [showBB, setShowBB] = useState(false);
   const [showMACD, setShowMACD] = useState(false);
@@ -171,7 +181,8 @@ export function PriceChart({ bars }: Props) {
               stroke="#475569"
               tick={{ fontSize: 10 }}
               domain={[dataMin - padding, dataMax + padding]}
-              width={50}
+              width={currency === 'KRW' ? 70 : 56}
+              tickFormatter={(v: number) => formatPrice(v, currency)}
             />
             <Tooltip
               contentStyle={{
@@ -181,6 +192,9 @@ export function PriceChart({ bars }: Props) {
                 fontSize: 11,
               }}
               labelStyle={{ color: '#cbd5e1' }}
+              formatter={(v) =>
+                typeof v === 'number' ? formatPrice(v, currency) : String(v ?? '')
+              }
             />
             {showBB && (
               <Area
@@ -227,21 +241,36 @@ export function PriceChart({ bars }: Props) {
                   stroke="#fb923c"
                   strokeDasharray="4 2"
                   strokeOpacity={0.7}
-                  label={{ value: 'Fib 38.2%', position: 'right', fill: '#fb923c', fontSize: 9 }}
+                  label={{
+                    value: `Fib 38.2% ${formatPrice(data.fib.level382, currency)}`,
+                    position: 'right',
+                    fill: '#fb923c',
+                    fontSize: 9,
+                  }}
                 />
                 <ReferenceLine
                   y={data.fib.level500}
                   stroke="#fb923c"
                   strokeDasharray="4 2"
                   strokeOpacity={0.7}
-                  label={{ value: 'Fib 50%', position: 'right', fill: '#fb923c', fontSize: 9 }}
+                  label={{
+                    value: `Fib 50% ${formatPrice(data.fib.level500, currency)}`,
+                    position: 'right',
+                    fill: '#fb923c',
+                    fontSize: 9,
+                  }}
                 />
                 <ReferenceLine
                   y={data.fib.level618}
                   stroke="#fb923c"
                   strokeDasharray="4 2"
                   strokeOpacity={0.7}
-                  label={{ value: 'Fib 61.8%', position: 'right', fill: '#fb923c', fontSize: 9 }}
+                  label={{
+                    value: `Fib 61.8% ${formatPrice(data.fib.level618, currency)}`,
+                    position: 'right',
+                    fill: '#fb923c',
+                    fontSize: 9,
+                  }}
                 />
               </>
             )}
@@ -298,7 +327,12 @@ export function PriceChart({ bars }: Props) {
             >
               <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
               <XAxis dataKey="date" hide />
-              <YAxis stroke="#475569" tick={{ fontSize: 9 }} width={50} />
+              <YAxis
+                stroke="#475569"
+                tick={{ fontSize: 9 }}
+                width={currency === 'KRW' ? 70 : 56}
+                tickFormatter={(v: number) => formatPrice(v, currency)}
+              />
               <Tooltip
                 contentStyle={{
                   background: '#0a0f1a',
@@ -307,6 +341,9 @@ export function PriceChart({ bars }: Props) {
                   fontSize: 11,
                 }}
                 labelStyle={{ color: '#cbd5e1' }}
+                formatter={(v) =>
+                  typeof v === 'number' ? formatPrice(v, currency) : String(v ?? '')
+                }
               />
               <ReferenceLine y={0} stroke="#475569" strokeWidth={1} />
               <Bar dataKey="macdHist" fill="#64748b" isAnimationActive={false} name="히스토그램" />
