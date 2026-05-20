@@ -7,9 +7,23 @@ import type { AnalysisResult } from '../src/lib/types.js';
 import type { ScreenerSummary } from '../src/lib/screenerTypes.js';
 
 const DEFAULT_N = 20;
-// 6 parallel workers keeps n=100 under the 60s Vercel function budget.
-// (n=100 × ~2.5s/ticker / 6 ≈ 42s with headroom for slow tickers.)
-const CONCURRENCY = 6;
+// Conservative pacing: 3 workers + 500ms post-analysis delay + 429 retry.
+// Stability over speed — n=20/50 fits comfortably in the 60s Vercel budget;
+// n=100 may exceed it under heavy load and end as a partial stream.
+const CONCURRENCY = 3;
+const INTER_TICKER_DELAY_MS = 500;
+const RETRY_429_DELAY_MS = 3000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+/** Yahoo's HTTP 429 surfaces in error messages as either the status code
+ *  itself or the canonical "Too Many Requests" phrase. */
+function is429(err: unknown): boolean {
+  const msg = (err as { message?: string })?.message ?? String(err);
+  return /\b429\b|Too Many Requests/i.test(msg);
+}
 
 const FILTERS: ReadonlySet<ScreenerFilter> = new Set([
   'all',
@@ -126,25 +140,64 @@ export async function runScreener(
 
   let nextIdx = 0;
   let completed = 0;
+  let skipped = 0;
   const worker = async () => {
     while (true) {
       const i = nextIdx++;
       if (i >= tickers.length) return;
       const t = tickers[i];
+
+      // First attempt → on 429, wait and retry once → on persistent 429,
+      // skip silently (no result event). Other errors emit as before.
+      let didSkip = false;
       try {
         const result = await analyzeOne(t);
         writer.write(sseFrame('result', toSummary(t, result)));
       } catch (err) {
-        writer.write(
-          sseFrame('result', {
-            ticker: t,
-            ok: false,
-            error: (err as Error).message,
-          } satisfies ScreenerSummary),
-        );
+        if (is429(err)) {
+          await sleep(RETRY_429_DELAY_MS);
+          try {
+            const result = await analyzeOne(t);
+            writer.write(sseFrame('result', toSummary(t, result)));
+          } catch (retryErr) {
+            if (is429(retryErr)) {
+              didSkip = true;
+            } else {
+              writer.write(
+                sseFrame('result', {
+                  ticker: t,
+                  ok: false,
+                  error: (retryErr as Error).message,
+                } satisfies ScreenerSummary),
+              );
+            }
+          }
+        } else {
+          writer.write(
+            sseFrame('result', {
+              ticker: t,
+              ok: false,
+              error: (err as Error).message,
+            } satisfies ScreenerSummary),
+          );
+        }
       }
+
       completed++;
-      writer.write(sseFrame('progress', { completed, total: tickers.length }));
+      if (didSkip) skipped++;
+      writer.write(
+        sseFrame('progress', {
+          completed,
+          total: tickers.length,
+          skipped,
+        }),
+      );
+
+      // Throttle: pause between analyses inside the same worker to ease
+      // Yahoo's rate-limit. Skip on the very last ticker.
+      if (nextIdx < tickers.length) {
+        await sleep(INTER_TICKER_DELAY_MS);
+      }
     }
   };
 
