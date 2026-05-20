@@ -597,6 +597,22 @@ export type ScreenerFilter = 'all' | 'large_cap' | 'small_mid' | 'tech';
 interface ScreenerHit {
   symbol: string;
   marketCap: number | null;
+  quoteType: string | null;
+  name: string | null;
+}
+
+/** True when the candidate is clearly a fund/ETF/trust rather than a
+ *  single-company equity. The screener mixes these in (especially via
+ *  most_actives), and we only want individual stocks. */
+function looksLikeFund(h: ScreenerHit): boolean {
+  const qt = (h.quoteType ?? '').toUpperCase();
+  if (qt === 'MUTUALFUND' || qt === 'ETF') return true;
+  // Mutual fund tickers tend to be 5+ chars ending in X (FXAIX, PRUIX).
+  if (h.symbol.length >= 5 && /X$/.test(h.symbol)) return true;
+  // Name-based heuristics catch closed-end funds, trusts, and SPDR/iShares
+  // products that don't always report quoteType=ETF.
+  if (h.name && /\b(Index|Fund|ETF|Trust)\b/i.test(h.name)) return true;
+  return false;
 }
 
 type ScrId = Parameters<typeof yahooFinance.screener>[0] extends infer T
@@ -642,15 +658,23 @@ async function fetchScreenerPool(
           { scrIds: scrId, count },
           undefined,
           { validateResult: false },
-        )) as { quotes?: { symbol?: string; marketCap?: number | null }[] };
+        )) as {
+          quotes?: {
+            symbol?: string;
+            marketCap?: number | null;
+            quoteType?: string | null;
+            longName?: string | null;
+            shortName?: string | null;
+          }[];
+        };
         const qs = r.quotes ?? [];
         return qs
-          .filter((q): q is { symbol: string; marketCap?: number | null } =>
-            typeof q.symbol === 'string' && q.symbol.length > 0,
-          )
+          .filter((q) => typeof q.symbol === 'string' && q.symbol.length > 0)
           .map((q) => ({
-            symbol: q.symbol,
+            symbol: q.symbol as string,
             marketCap: typeof q.marketCap === 'number' ? q.marketCap : null,
+            quoteType: q.quoteType ?? null,
+            name: q.longName ?? q.shortName ?? null,
           })) as ScreenerHit[];
       } catch {
         return [] as ScreenerHit[];
@@ -676,6 +700,8 @@ async function fetchScreenerPool(
     }
     // Skip preferreds / warrants — Yahoo sometimes leaks these into screens
     if (/[.-]P[A-Z]?$|\.WS$|\.W$|^_/.test(h.symbol)) return false;
+    // Skip mutual funds / ETFs / trusts — we screen individual equities only
+    if (looksLikeFund(h)) return false;
     return true;
   });
 
