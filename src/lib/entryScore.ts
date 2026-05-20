@@ -51,9 +51,9 @@ export function computeEntryScore(inputs: EntryScoreInputs): EntryScoreResult {
     gains.push({ reason: `ADX ${adxVal.toFixed(0)} → +${delta} (강한 추세)`, delta });
   }
   if (vr != null && vr >= 1.5) {
-    gains.push({ reason: `거래량 ${vr.toFixed(2)}x → +15 (관심↑)`, delta: 15 });
+    gains.push({ reason: `거래량 ${vr.toFixed(2)}x → +10 (관심↑)`, delta: 10 });
   } else if (vr != null && vr >= 1.0 && vr < 1.5) {
-    gains.push({ reason: `거래량 ${vr.toFixed(2)}x → +10 (평균↑)`, delta: 10 });
+    gains.push({ reason: `거래량 ${vr.toFixed(2)}x → +5 (평균↑)`, delta: 5 });
   }
   if (rs >= 70) {
     gains.push({ reason: `RS ${rs.toFixed(0)} (>=70) → +20`, delta: 20 });
@@ -260,8 +260,10 @@ export function computeEntryScore(inputs: EntryScoreInputs): EntryScoreResult {
     }
   }
   if (adxVal != null) {
-    if (adxVal < 20) {
-      deductions.push({ reason: `ADX ${adxVal.toFixed(0)} < 20 → -15 (추세 없음)`, delta: -15 });
+    if (adxVal < 15) {
+      deductions.push({ reason: `ADX ${adxVal.toFixed(0)} < 15 → -15 (추세 없음)`, delta: -15 });
+    } else if (adxVal < 20) {
+      deductions.push({ reason: `ADX ${adxVal.toFixed(0)} < 20 → -10 (추세 미약)`, delta: -10 });
     } else if (adxVal < 25) {
       deductions.push({ reason: `ADX ${adxVal.toFixed(0)} < 25 → -5 (추세 약함)`, delta: -5 });
     }
