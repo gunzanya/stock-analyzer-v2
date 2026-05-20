@@ -314,7 +314,7 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
     );
   }
 
-  return {
+  const out: FundamentalData = {
     ticker: upper,
     name: price?.longName ?? price?.shortName ?? upper,
     exchange: (price?.exchangeName ?? null) as string | null,
@@ -362,6 +362,141 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
 
     fetchedAt: new Date().toISOString(),
     warnings,
+  };
+
+  // For .KS / .KQ tickers, fill any null Yahoo fields from Naver (HTML
+  // scrape, 5s timeout, graceful failure). Yahoo always wins when present.
+  if (/\.(KS|KQ)$/i.test(upper)) {
+    const nv = await fetchNaverData(upper);
+    if (nv) {
+      if (out.per == null && nv.per != null) out.per = nv.per;
+      if (out.pbr == null && nv.pbr != null) out.pbr = nv.pbr;
+      if (out.trailingEps == null && nv.eps != null) out.trailingEps = nv.eps;
+      if (out.dividendYield == null && nv.dividendYield != null) {
+        out.dividendYield = nv.dividendYield;
+      }
+      if (out.marketCap == null && nv.marketCapKrw != null) {
+        out.marketCap = nv.marketCapKrw;
+      }
+      if (out.roe == null && nv.roe != null) out.roe = nv.roe;
+      if (out.operatingMargin == null && nv.operatingMargin != null) {
+        out.operatingMargin = nv.operatingMargin;
+      }
+    }
+  }
+
+  return out;
+}
+
+// ---- Naver Finance fallback for Korean tickers --------------------------
+
+interface NaverData {
+  per: number | null;
+  pbr: number | null;
+  eps: number | null;            // native KRW per share
+  dividendYield: number | null;  // fraction (Naver shows %, we divide by 100)
+  marketCapKrw: number | null;   // raw KRW
+  roe: number | null;            // fraction
+  operatingMargin: number | null; // fraction
+}
+
+const NAVER_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+  '(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
+
+function parseNumeric(s: string | null): number | null {
+  if (!s) return null;
+  const cleaned = s.replace(/[,\s%]/g, '').replace(/<[^>]+>/g, '');
+  if (!/[\d.-]/.test(cleaned)) return null;
+  const v = parseFloat(cleaned);
+  return Number.isFinite(v) ? v : null;
+}
+
+/** Grab the text inside <em id="X">…</em>. Strips inner tags + whitespace. */
+function grabEmById(html: string, id: string): string | null {
+  const m = html.match(new RegExp(`id="${id}"[^>]*>([\\s\\S]*?)</em>`, 'i'));
+  if (!m) return null;
+  return m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/** Find a 기업실적분석 row by its <strong>label</strong> and return the last
+ *  numeric <td> value. Returns null if the row or any number can't be found. */
+function lastTdInRow(html: string, label: string): number | null {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const row = html.match(
+    new RegExp(`<tr[^>]*>[^<]*<th[^>]*>[^<]*<strong>${escaped}[^<]*</strong>[\\s\\S]*?</tr>`, 'i'),
+  );
+  if (!row) return null;
+  const tdRe = /<td[^>]*>([\s\S]*?)<\/td>/g;
+  let last: string | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = tdRe.exec(row[0])) != null) {
+    const txt = m[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+    if (txt && txt !== '-' && /-?\d/.test(txt)) last = txt;
+  }
+  return parseNumeric(last);
+}
+
+/** Scrape PER/PBR/EPS/dividend yield/marketCap (+ best-effort ROE & op
+ *  margin) from Naver Finance for a Korean ticker. Returns null on any
+ *  failure so callers can fall back to whatever they already had. */
+async function fetchNaverData(ticker: string): Promise<NaverData | null> {
+  const code = ticker.replace(/\.(KS|KQ)$/i, '');
+  if (!/^\d{6}$/.test(code)) return null;
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 5000);
+  let html: string;
+  try {
+    const res = await fetch(
+      `https://finance.naver.com/item/main.naver?code=${code}`,
+      {
+        signal: ctrl.signal,
+        headers: { 'User-Agent': NAVER_UA, Accept: 'text/html' },
+      },
+    );
+    if (!res.ok) return null;
+    html = await res.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const per = parseNumeric(grabEmById(html, '_per'));
+  const pbr = parseNumeric(grabEmById(html, '_pbr'));
+  const eps = parseNumeric(grabEmById(html, '_eps'));
+  const dvrPct = parseNumeric(grabEmById(html, '_dvr'));
+
+  // marketCap: "1,613조 5,729" inside <em id="_market_sum"> with suffix 억원
+  let marketCapKrw: number | null = null;
+  const msRaw = grabEmById(html, '_market_sum');
+  if (msRaw) {
+    const cleaned = msRaw.replace(/,/g, '');
+    const joMatch = cleaned.match(/(\d+)\s*조/);
+    const afterJo = cleaned.includes('조')
+      ? cleaned.split('조')[1]?.match(/(\d+)/)?.[1]
+      : cleaned.match(/^(\d+)$/)?.[1];
+    let eok = 0;
+    if (joMatch) eok += Number(joMatch[1]) * 10000; // 1조 = 10000억
+    if (afterJo) eok += Number(afterJo);
+    if (eok > 0) marketCapKrw = eok * 1e8; // 억원 → 원
+  }
+
+  // ROE / operating margin: in the 기업실적분석 table — best-effort row scrape.
+  // The row has multiple <td>s (annual + quarterly columns). The rightmost
+  // non-empty cell is the most recent estimate.
+  const roePct = lastTdInRow(html, 'ROE(지배주주)');
+  const opMarginPct = lastTdInRow(html, '영업이익률');
+
+  return {
+    per,
+    pbr,
+    eps,
+    dividendYield: dvrPct != null ? dvrPct / 100 : null,
+    marketCapKrw,
+    roe: roePct != null ? roePct / 100 : null,
+    operatingMargin: opMarginPct != null ? opMarginPct / 100 : null,
   };
 }
 
@@ -552,4 +687,5 @@ export {
   fetchPriceHistory,
   fetchUsdKrwRate,
   fetchScreenerPool,
+  fetchNaverData,
 };
