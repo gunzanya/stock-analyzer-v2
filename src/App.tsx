@@ -36,6 +36,20 @@ function App() {
     setFavorites(loadFavorites());
   }, []);
 
+  // Auto-analyze when arriving with ?ticker=XYZ (e.g. middle-click from
+  // the screener opens a new tab whose URL has this param). Runs once on
+  // mount, then strips the param so refresh / tab switches don't re-fire.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ticker = params.get('ticker');
+    if (!ticker) return;
+    const upper = ticker.toUpperCase();
+    setTab('analyze');
+    setInput(upper);
+    void runAnalysis(upper);
+    window.history.replaceState({}, '', window.location.pathname);
+  }, []);
+
   function toggleFavorite(ticker: string) {
     const upper = ticker.toUpperCase();
     setFavorites((prev) => {

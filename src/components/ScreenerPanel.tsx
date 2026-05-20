@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import type { ScreenerSummary } from '../lib/screenerTypes.js';
 import { STOCK_TYPE_LABELS } from '../lib/types.js';
 import { LEVEL_KO, SCORE_TEXT, scoreLevel } from './scoreColors.js';
@@ -15,6 +15,26 @@ const FILTER_LABELS: Record<PoolFilter, string> = {
   small_mid: '중소형주',
   tech: '테크',
 };
+
+// Same grid template for header + rows so columns line up.
+const ROW_GRID =
+  'grid grid-cols-[minmax(140px,1.4fr)_minmax(110px,1.2fr)_90px_90px_56px_44px] items-center';
+
+function tickerHref(t: string): string {
+  return `/?ticker=${encodeURIComponent(t)}`;
+}
+
+/** Returns an onClick that:
+ *  - lets modifier-clicks / middle-clicks fall through to the browser
+ *    (so they open in a new tab from the underlying <a href>)
+ *  - intercepts plain left-clicks and runs `inApp` (tab switch) instead. */
+function linkClickHandler(inApp: () => void) {
+  return (e: MouseEvent<HTMLAnchorElement>) => {
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    inApp();
+  };
+}
 
 interface Props {
   favorites: string[];
@@ -266,41 +286,37 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
 
       {filtered.length > 0 && (
         <>
-          {/* Desktop / tablet table */}
+          {/* Desktop / tablet grid (div-based so each row can be a real <a>) */}
           <div className="hidden sm:block rounded-2xl border border-[#1e293b] bg-[#0f172a] overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-[#1e293b]/40 text-[11px] uppercase tracking-wider text-slate-400">
-                <tr>
-                  <th className="text-left px-3 py-2 font-medium">티커</th>
-                  <th className="text-left px-3 py-2 font-medium">유형</th>
-                  <SortHeader
-                    label="Total"
-                    active={sortKey === 'total'}
-                    dir={sortDir}
-                    onClick={() => toggleSort('total')}
-                  />
-                  <SortHeader
-                    label="Entry"
-                    active={sortKey === 'entry'}
-                    dir={sortDir}
-                    onClick={() => toggleSort('entry')}
-                  />
-                  <th className="text-center px-3 py-2 font-medium">안전</th>
-                  <th className="text-center px-3 py-2 font-medium w-12"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((r) => (
-                  <Row
-                    key={r.ticker}
-                    row={r}
-                    isFavorite={favorites.includes(r.ticker)}
-                    onToggleFavorite={() => onToggleFavorite(r.ticker)}
-                    onPick={() => onPickTicker(r.ticker)}
-                  />
-                ))}
-              </tbody>
-            </table>
+            <div
+              className={`${ROW_GRID} bg-[#1e293b]/40 text-[11px] uppercase tracking-wider text-slate-400`}
+            >
+              <div className="px-3 py-2 font-medium">티커</div>
+              <div className="px-3 py-2 font-medium">유형</div>
+              <SortHeader
+                label="Total"
+                active={sortKey === 'total'}
+                dir={sortDir}
+                onClick={() => toggleSort('total')}
+              />
+              <SortHeader
+                label="Entry"
+                active={sortKey === 'entry'}
+                dir={sortDir}
+                onClick={() => toggleSort('entry')}
+              />
+              <div className="px-3 py-2 font-medium text-center">안전</div>
+              <div className="px-3 py-2 font-medium" />
+            </div>
+            {filtered.map((r) => (
+              <Row
+                key={r.ticker}
+                row={r}
+                isFavorite={favorites.includes(r.ticker)}
+                onToggleFavorite={() => onToggleFavorite(r.ticker)}
+                onPick={() => onPickTicker(r.ticker)}
+              />
+            ))}
           </div>
           {/* Mobile cards */}
           <div className="sm:hidden space-y-2">
@@ -339,7 +355,7 @@ function SortHeader({
 }) {
   const arrow = active ? (dir === 'desc' ? '▼' : '▲') : '↕';
   return (
-    <th className="text-right px-3 py-2 font-medium">
+    <div className="px-3 py-2 font-medium text-right">
       <button
         type="button"
         onClick={onClick}
@@ -351,7 +367,7 @@ function SortHeader({
         {label}
         <span className="text-[9px]">{arrow}</span>
       </button>
-    </th>
+    </div>
   );
 }
 
@@ -374,44 +390,42 @@ function Row({
 }) {
   if (!row.ok) {
     return (
-      <tr className="border-t border-[#1e293b]">
-        <td className="px-3 py-2 font-mono font-semibold text-red-300">{row.ticker}</td>
-        <td colSpan={4} className="px-3 py-2 text-xs text-red-400">
-          {row.error ?? '분석 실패'}
-        </td>
-        <td className="px-3 py-2"></td>
-      </tr>
+      <div className="border-t border-[#1e293b] grid grid-cols-[140px_1fr] items-center">
+        <div className="px-3 py-2 font-mono font-semibold text-red-300">{row.ticker}</div>
+        <div className="px-3 py-2 text-xs text-red-400">{row.error ?? '분석 실패'}</div>
+      </div>
     );
   }
   const totalLevel = scoreLevel(row.totalScore ?? 0);
   const entryLevel = scoreLevel(row.entryScore ?? 0);
   return (
-    <tr
-      className="border-t border-[#1e293b] hover:bg-[#1e293b]/30 cursor-pointer transition-colors"
-      onClick={onPick}
+    <a
+      href={tickerHref(row.ticker)}
+      onClick={linkClickHandler(onPick)}
+      className={`${ROW_GRID} border-t border-[#1e293b] hover:bg-[#1e293b]/30 transition-colors no-underline text-inherit`}
     >
-      <td className="px-3 py-2">
+      <div className="px-3 py-2">
         <div className="font-mono font-semibold text-slate-100">{row.ticker}</div>
         <div className="text-[10px] text-slate-500 truncate max-w-[180px]">
           {row.name ?? ''}
         </div>
-      </td>
-      <td className="px-3 py-2 text-xs text-slate-200">
+      </div>
+      <div className="px-3 py-2 text-xs text-slate-200">
         {row.uncertain ? '❓ 불확실' : typeBadge(row.primary)}
-      </td>
-      <td className={`px-3 py-2 text-right font-mono font-semibold ${SCORE_TEXT[totalLevel]}`}>
+      </div>
+      <div className={`px-3 py-2 text-right font-mono font-semibold ${SCORE_TEXT[totalLevel]}`}>
         {Math.round(row.totalScore ?? 0)}
         <div className="text-[10px] text-slate-500 font-normal">
           {row.totalLevel ? LEVEL_KO[row.totalLevel] : ''}
         </div>
-      </td>
-      <td className={`px-3 py-2 text-right font-mono font-semibold ${SCORE_TEXT[entryLevel]}`}>
+      </div>
+      <div className={`px-3 py-2 text-right font-mono font-semibold ${SCORE_TEXT[entryLevel]}`}>
         {Math.round(row.entryScore ?? 0)}
         <div className="text-[10px] text-slate-500 font-normal">
           {row.entryLevel ? LEVEL_KO[row.entryLevel] : ''}
         </div>
-      </td>
-      <td className="px-3 py-2 text-center">
+      </div>
+      <div className="px-3 py-2 text-center">
         {row.safetyTriggered ? (
           <span className="text-red-400 text-base" title="안전장치 발동">
             🚨
@@ -419,11 +433,12 @@ function Row({
         ) : (
           <span className="text-slate-600">·</span>
         )}
-      </td>
-      <td className="px-3 py-2 text-center">
+      </div>
+      <div className="px-3 py-2 text-center">
         <button
           type="button"
           onClick={(e) => {
+            e.preventDefault();
             e.stopPropagation();
             onToggleFavorite();
           }}
@@ -432,8 +447,8 @@ function Row({
         >
           {isFavorite ? '⭐' : '☆'}
         </button>
-      </td>
-    </tr>
+      </div>
+    </a>
   );
 }
 
@@ -459,10 +474,10 @@ function MobileCard({
   const totalLevel = scoreLevel(row.totalScore ?? 0);
   const entryLevel = scoreLevel(row.entryScore ?? 0);
   return (
-    <button
-      type="button"
-      onClick={onPick}
-      className="w-full text-left rounded-xl border border-[#1e293b] bg-[#0f172a] p-3 hover:bg-[#1e293b]/40 transition-colors"
+    <a
+      href={tickerHref(row.ticker)}
+      onClick={linkClickHandler(onPick)}
+      className="block rounded-xl border border-[#1e293b] bg-[#0f172a] p-3 hover:bg-[#1e293b]/40 transition-colors no-underline text-inherit"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -475,8 +490,10 @@ function MobileCard({
             {row.uncertain ? '❓ 불확실' : typeBadge(row.primary)}
           </p>
         </div>
-        <div
+        <button
+          type="button"
           onClick={(e) => {
+            e.preventDefault();
             e.stopPropagation();
             onToggleFavorite();
           }}
@@ -484,7 +501,7 @@ function MobileCard({
           aria-label={isFavorite ? '관심종목 제거' : '관심종목 추가'}
         >
           {isFavorite ? '⭐' : '☆'}
-        </div>
+        </button>
       </div>
       <div className="flex gap-4 mt-2 text-xs">
         <div>
@@ -503,6 +520,6 @@ function MobileCard({
           </span>
         </div>
       </div>
-    </button>
+    </a>
   );
 }
