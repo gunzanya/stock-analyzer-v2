@@ -46,6 +46,7 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
   }
 
   const classification = classify(fund);
+  const isKoreanTicker = /\.(KS|KQ)$/i.test(fund.ticker);
   const hasPrices = stockBars.length >= 50 && benchBars.length >= 50;
 
   const safetyGuard = hasPrices
@@ -64,7 +65,7 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
       };
 
   const entryScore = hasPrices
-    ? computeEntryScore({ stockBars, benchmarkBars: benchBars })
+    ? computeEntryScore({ stockBars, benchmarkBars: benchBars, absoluteMode: isKoreanTicker })
     : {
         score: 0,
         gains: [],
@@ -72,7 +73,9 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
         level: 'NEUTRAL' as const,
       };
 
-  const rs = hasPrices ? relativeStrength(stockBars, benchBars).rs : null;
+  const rs = hasPrices
+    ? relativeStrength(stockBars, benchBars, { absoluteMode: isKoreanTicker }).rs
+    : null;
   const adx = hasPrices ? adxOf(stockBars) : null;
   const vr = hasPrices ? volumeRatio(stockBars) : null;
   const r30 = hasPrices ? return30d(stockBars) : null;

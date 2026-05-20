@@ -65,8 +65,9 @@ function normalizeIndustry(s: string): string {
 export function resolveBenchmarkEtf(fund: FundamentalData): string {
   // 1. Special name-based overrides
   if (isCybersecurity(fund)) return 'CIBR';
-  // 2. Korean tickers → KOSPI broad index
+  // 2. Korean tickers → KOSPI/KOSDAQ broad index
   if (/\.KS$/i.test(fund.ticker)) return '^KS11';
+  if (/\.KQ$/i.test(fund.ticker)) return '^KQ11';
   // 3. Industry-specific
   if (fund.industry) {
     const norm = normalizeIndustry(fund.industry);
@@ -255,13 +256,60 @@ export function obvBearishDivergence(bars: PriceBar[], lookback = 30): boolean |
 /** Excess 3-month return vs benchmark, mapped to 0–100, with an absolute-
  *  momentum floor: a stock up materially over a year shouldn't read RS≈0
  *  just because its sub-industry ETF ran even harder (TSM vs SOXX). */
+// Piecewise-linear RS from 1-year absolute return, used for Korean tickers
+// (the KOSPI/KOSDAQ sector ETF coverage is too thin for a meaningful
+// relative-strength comparison, so absolute momentum is the better signal).
+//   +100%↑ = 95   +50% = 80   +30% = 65
+//    +10% = 45     0% = 25   -20%↓ = 10
+const ABS_RS_ANCHORS: ReadonlyArray<readonly [number, number]> = [
+  [-0.20, 10],
+  [0.0, 25],
+  [0.1, 45],
+  [0.3, 65],
+  [0.5, 80],
+  [1.0, 95],
+];
+function rsFromAbsoluteReturn1Y(r: number): number {
+  if (r <= ABS_RS_ANCHORS[0][0]) return ABS_RS_ANCHORS[0][1];
+  const last = ABS_RS_ANCHORS[ABS_RS_ANCHORS.length - 1];
+  if (r >= last[0]) return last[1];
+  for (let i = 0; i < ABS_RS_ANCHORS.length - 1; i++) {
+    const [x1, y1] = ABS_RS_ANCHORS[i];
+    const [x2, y2] = ABS_RS_ANCHORS[i + 1];
+    if (r >= x1 && r <= x2) {
+      return y1 + ((r - x1) / (x2 - x1)) * (y2 - y1);
+    }
+  }
+  return 50;
+}
+
 export function relativeStrength(
   stockBars: PriceBar[],
   benchmarkBars: PriceBar[],
+  opts?: { absoluteMode?: boolean },
 ): { rs: number; stockReturn3M: number | null; benchmarkReturn3M: number | null; excess: number | null } {
   const stockReturn3M = return90d(stockBars);
   const benchmarkReturn3M = return90d(benchmarkBars);
   const stockReturn1Y = return1y(stockBars);
+
+  // Absolute mode (Korean tickers): RS = piecewise function of 1Y abs return.
+  // Excess vs benchmark is still computed when available (used for sector-lag
+  // deduction in EntryScore), but does not drive the RS number.
+  if (opts?.absoluteMode) {
+    const excess =
+      stockReturn3M != null && benchmarkReturn3M != null
+        ? stockReturn3M - benchmarkReturn3M
+        : null;
+    if (stockReturn1Y == null) {
+      return { rs: 25, stockReturn3M, benchmarkReturn3M, excess };
+    }
+    return {
+      rs: rsFromAbsoluteReturn1Y(stockReturn1Y),
+      stockReturn3M,
+      benchmarkReturn3M,
+      excess,
+    };
+  }
 
   if (stockReturn3M == null || benchmarkReturn3M == null) {
     return { rs: 50, stockReturn3M, benchmarkReturn3M, excess: null };

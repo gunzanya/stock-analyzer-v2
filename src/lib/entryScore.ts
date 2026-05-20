@@ -18,10 +18,11 @@ const MAX_TOTAL_DEDUCTION = -30; // cap on the sum of deductions
 export interface EntryScoreInputs {
   stockBars: PriceBar[];
   benchmarkBars: PriceBar[];
+  absoluteMode?: boolean;
 }
 
 export function computeEntryScore(inputs: EntryScoreInputs): EntryScoreResult {
-  const { stockBars, benchmarkBars } = inputs;
+  const { stockBars, benchmarkBars, absoluteMode } = inputs;
   const gains: { reason: string; delta: number }[] = [];
   const deductions: { reason: string; delta: number }[] = [];
 
@@ -29,7 +30,7 @@ export function computeEntryScore(inputs: EntryScoreInputs): EntryScoreResult {
   const adxVal = adxOf(stockBars);
   const obvDiv = obvBearishDivergence(stockBars);
   const r30 = return30d(stockBars);
-  const { rs, excess } = relativeStrength(stockBars, benchmarkBars);
+  const { rs, excess } = relativeStrength(stockBars, benchmarkBars, { absoluteMode });
 
   // ---------- Gains (base technical strength) ----------
   if (adxVal != null && adxVal >= 25) {
