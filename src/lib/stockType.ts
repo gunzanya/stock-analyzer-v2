@@ -391,7 +391,7 @@ function scoreCyclical(fund: FundamentalData): TypeCandidateScore {
     score += 10;
     reasons.push(`섹터 Consumer Cyclical → +10`);
   }
-  if (/auto|steel|chemical|airline|shipping|construction|aluminum|copper|oil|gas|petroleum|mining|metals/i.test(ind)) {
+  if (/auto|steel|chemical|airline|shipping|construction|aluminum|copper|oil|gas|petroleum|mining|metals|capital markets/i.test(ind)) {
     score += 15;
     reasons.push(`산업 ${ind} → +15`);
   }

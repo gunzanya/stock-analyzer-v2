@@ -51,6 +51,21 @@ export function extractRiskFactors(inp: RiskInputs): RiskFactor[] {
     out.push({ severity: 'medium', message: `PER ${f.per.toFixed(0)} (극단)` });
   }
 
+  // Peak-earnings tell: low PER + huge EPS growth = market pricing in a
+  // reversion. Classic late-cycle pattern for cyclicals/commodities.
+  if (
+    isNum(f.per) &&
+    f.per > 0 &&
+    f.per < 12 &&
+    isNum(f.epsGrowthYoY) &&
+    f.epsGrowthYoY > 0.5
+  ) {
+    out.push({
+      severity: 'medium',
+      message: `PER ${f.per.toFixed(0)} + EPS YoY +${(f.epsGrowthYoY * 100).toFixed(0)}% (이익 피크 가능성)`,
+    });
+  }
+
   // Volume / technical
   if (ind.volumeRatio != null && ind.volumeRatio < 0.7) {
     out.push({ severity: 'medium', message: `거래량 ${ind.volumeRatio.toFixed(2)}x (위축)` });
