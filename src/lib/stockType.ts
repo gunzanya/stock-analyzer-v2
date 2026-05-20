@@ -269,6 +269,23 @@ function scoreStalwart(fund: FundamentalData): TypeCandidateScore {
     }
   }
 
+  // Mega-cap floor: enormous companies retain stalwart characteristics
+  // regardless of growth speed or recent earnings noise. AMZN at $2.79T
+  // shouldn't score 0 just because EPS YoY is 75% (above the 8-25% band).
+  if (isNum(mcap)) {
+    let floor = 0;
+    if (mcap >= 1e12) floor = 25;
+    else if (mcap >= 500e9) floor = 20;
+    else if (mcap >= 200e9) floor = 15;
+    if (floor > 0 && score < floor) {
+      const before = Math.max(0, score);
+      score = floor;
+      reasons.push(
+        `메가캡 floor: 시총 $${(mcap / 1e9).toFixed(0)}B → ${before}→${floor}`,
+      );
+    }
+  }
+
   return { type: 'STALWART', score: Math.max(0, score), reasons };
 }
 
