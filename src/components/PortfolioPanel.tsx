@@ -39,7 +39,14 @@ function toKRW(v: number, kr: boolean, rate: number): number {
   return kr ? v : v * rate;
 }
 
-export function PortfolioPanel() {
+type PosView = 'compact' | 'detail';
+const POS_VIEW_KEY = 'portfolio_pos_view';
+
+function loadPosView(): PosView {
+  return (localStorage.getItem(POS_VIEW_KEY) as PosView) || 'compact';
+}
+
+export function PortfolioPanel({ onPickTicker }: { onPickTicker: (ticker: string) => void }) {
   const [positions, setPositions] = useState<PortfolioPosition[]>([]);
   const [closed, setClosed] = useState<ClosedPosition[]>([]);
   const [prices, setPrices] = useState<PriceMap>({});
@@ -49,7 +56,13 @@ export function PortfolioPanel() {
   const [closePrice, setClosePrice] = useState('');
   const [editTarget, setEditTarget] = useState<PortfolioPosition | null>(null);
   const [view, setView] = useState<'active' | 'history' | 'stats'>('active');
+  const [posView, setPosView] = useState<PosView>(loadPosView);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+
+  function changePosView(v: PosView) {
+    setPosView(v);
+    localStorage.setItem(POS_VIEW_KEY, v);
+  }
 
   const reload = useCallback(() => {
     setPositions(loadPositions());
@@ -170,24 +183,39 @@ export function PortfolioPanel() {
                 <SummaryBox label="보유 종목" value={`${positions.length}개`} sub={`평균 ${avgDays}일 · 환율 ${Math.round(fxRate).toLocaleString()}`} />
               </div>
 
-              {loading && (
-                <p className="text-[10px] text-slate-600 text-center">현재가 업데이트 중...</p>
-              )}
-
-              <div className="space-y-3">
-                {positions.map((p) => (
-                  <PositionCard
-                    key={p.id}
-                    pos={p}
-                    currentPrice={prices[p.ticker] ?? null}
-                    days={holdingDays(p.entryDate)}
-                    fxRate={fxRate}
-                    onPartialClose={(pct) => openCloseModal(p.id, pct)}
-                    onEdit={() => setEditTarget({ ...p })}
-                    onDelete={() => { removePosition(p.id); reload(); }}
-                  />
-                ))}
+              <div className="flex items-center justify-between">
+                {loading && (
+                  <p className="text-[10px] text-slate-600">현재가 업데이트 중...</p>
+                )}
+                <div className="flex gap-1 ml-auto">
+                  <ViewToggle active={posView === 'compact'} onClick={() => changePosView('compact')}>간략</ViewToggle>
+                  <ViewToggle active={posView === 'detail'} onClick={() => changePosView('detail')}>자세히</ViewToggle>
+                </div>
               </div>
+
+              {posView === 'compact' ? (
+                <CompactTable
+                  positions={positions}
+                  prices={prices}
+                  holdingDays={holdingDays}
+                  onPickTicker={onPickTicker}
+                />
+              ) : (
+                <div className="space-y-3">
+                  {positions.map((p) => (
+                    <PositionCard
+                      key={p.id}
+                      pos={p}
+                      currentPrice={prices[p.ticker] ?? null}
+                      days={holdingDays(p.entryDate)}
+                      fxRate={fxRate}
+                      onPartialClose={(pct) => openCloseModal(p.id, pct)}
+                      onEdit={() => setEditTarget({ ...p })}
+                      onDelete={() => { removePosition(p.id); reload(); }}
+                    />
+                  ))}
+                </div>
+              )}
             </>
           )}
         </>
@@ -664,7 +692,88 @@ function PerformanceStats({ closed }: { closed: ClosedPosition[] }) {
   );
 }
 
+/* ── Compact Table ── */
+
+function CompactTable({
+  positions,
+  prices,
+  holdingDays,
+  onPickTicker,
+}: {
+  positions: PortfolioPosition[];
+  prices: PriceMap;
+  holdingDays: (d: string) => number;
+  onPickTicker: (ticker: string) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-[#1e293b] overflow-hidden">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="bg-[#0f172a] text-slate-500 text-[10px] uppercase tracking-wider">
+            <th className="text-left px-3 py-2 font-bold">종목</th>
+            <th className="text-right px-3 py-2 font-bold">수익률</th>
+            <th className="text-right px-3 py-2 font-bold hidden sm:table-cell">손익</th>
+            <th className="text-right px-3 py-2 font-bold">보유일</th>
+            <th className="text-center px-2 py-2 font-bold">상태</th>
+          </tr>
+        </thead>
+        <tbody>
+          {positions.map((p) => {
+            const kr = isKR(p.ticker);
+            const cur = prices[p.ticker] ?? null;
+            const ret = cur != null ? (cur - p.entryPrice) / p.entryPrice : null;
+            const pnl = cur != null ? (cur - p.entryPrice) * p.quantity : null;
+            const days = holdingDays(p.entryDate);
+            const hitStop = p.stopPrice != null && cur != null && cur <= p.stopPrice;
+            const hitTarget = p.targetPrice != null && cur != null && cur >= p.targetPrice;
+            const status = hitStop ? '🔴' : hitTarget ? '🟢' : '⚪';
+
+            return (
+              <tr
+                key={p.id}
+                onClick={() => onPickTicker(p.ticker)}
+                className="border-t border-[#1e293b] hover:bg-slate-800/50 cursor-pointer transition-colors"
+              >
+                <td className="px-3 py-2.5">
+                  <span className="font-bold text-slate-100">{p.ticker}</span>
+                  <span className="text-slate-500 ml-1.5 hidden sm:inline">{p.name}</span>
+                </td>
+                <td className={`px-3 py-2.5 text-right font-bold tabular-nums ${
+                  ret == null ? 'text-slate-500' : ret >= 0 ? 'text-emerald-400' : 'text-red-400'
+                }`}>
+                  {ret != null ? `${ret >= 0 ? '+' : ''}${(ret * 100).toFixed(2)}%` : '—'}
+                </td>
+                <td className={`px-3 py-2.5 text-right tabular-nums hidden sm:table-cell ${
+                  pnl == null ? 'text-slate-500' : pnl >= 0 ? 'text-emerald-400' : 'text-red-400'
+                }`}>
+                  {pnl != null ? `${pnl >= 0 ? '+' : ''}${fmtCcy(Math.abs(pnl), kr)}` : '—'}
+                </td>
+                <td className="px-3 py-2.5 text-right text-slate-400 tabular-nums">{days}일</td>
+                <td className="px-2 py-2.5 text-center">{status}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /* ── Shared UI ── */
+
+function ViewToggle({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${
+        active ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-500 hover:text-slate-300'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
 
 function SubTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (

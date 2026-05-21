@@ -212,7 +212,11 @@ function App() {
 
       <main className="max-w-6xl mx-auto p-4">
         {tab === 'portfolio' ? (
-          <PortfolioPanel />
+          <PortfolioPanel onPickTicker={(t) => {
+            changeTab('analyze');
+            setInput(t);
+            void runAnalysis(t);
+          }} />
         ) : tab === 'screener' ? (
           <ScreenerPanel
             favorites={favorites}
