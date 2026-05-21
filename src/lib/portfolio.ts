@@ -45,8 +45,9 @@ export function loadPositions(): PortfolioPosition[] {
   }));
 }
 
-export function savePositions(positions: PortfolioPosition[]) {
+export function savePositions(positions: PortfolioPosition[], sync = true) {
   write(POS_KEY, positions);
+  if (sync) import('./sync.js').then((m) => m.pushToServer());
 }
 
 export function loadClosed(): ClosedPosition[] {
@@ -57,8 +58,9 @@ export function loadClosed(): ClosedPosition[] {
   }));
 }
 
-export function saveClosed(closed: ClosedPosition[]) {
+export function saveClosed(closed: ClosedPosition[], sync = true) {
   write(CLOSED_KEY, closed);
+  if (sync) import('./sync.js').then((m) => m.pushToServer());
 }
 
 export function addPosition(pos: PortfolioPosition) {

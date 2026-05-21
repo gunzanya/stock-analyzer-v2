@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { fetchAnalysis } from './lib/api.js';
 import type { AnalysisResult } from './lib/types.js';
 import { loadFavorites, saveFavorites } from './lib/favorites.js';
+import { pullFromServer } from './lib/sync.js';
 import { StockCard } from './components/StockCard.js';
 import { ScreenerPanel } from './components/ScreenerPanel.js';
 import { TickerInput } from './components/TickerInput.js';
@@ -54,7 +55,7 @@ function App() {
   const [popNav, setPopNav] = useState(0);
 
   useEffect(() => {
-    setFavorites(loadFavorites());
+    pullFromServer().then(() => setFavorites(loadFavorites()));
   }, []);
 
   useEffect(() => {

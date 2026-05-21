@@ -16,10 +16,11 @@ export function loadFavorites(): string[] {
   }
 }
 
-export function saveFavorites(list: string[]): void {
+export function saveFavorites(list: string[], sync = true): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(list));
   } catch {
     // quota or private mode — silently ignore
   }
+  if (sync) import('./sync.js').then((m) => m.pushToServer());
 }

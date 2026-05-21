@@ -8,6 +8,7 @@ import {
   type PortfolioPosition,
 } from '../lib/portfolio.js';
 import { fetchAnalysis } from '../lib/api.js';
+import { onSyncStatus } from '../lib/sync.js';
 
 type PriceMap = Record<string, number | null>;
 
@@ -45,6 +46,7 @@ export function PortfolioPanel() {
   const [closeModal, setCloseModal] = useState<{ id: string; pct: number } | null>(null);
   const [closePrice, setClosePrice] = useState('');
   const [view, setView] = useState<'active' | 'history' | 'stats'>('active');
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
 
   const reload = useCallback(() => {
     setPositions(loadPositions());
@@ -52,6 +54,8 @@ export function PortfolioPanel() {
   }, []);
 
   useEffect(() => { reload(); }, [reload]);
+
+  useEffect(() => onSyncStatus(setSyncStatus), []);
 
   const fetchPrices = useCallback(async () => {
     if (positions.length === 0) return;
@@ -114,7 +118,7 @@ export function PortfolioPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 border-b border-[#1e293b]">
+      <div className="flex items-center gap-1 border-b border-[#1e293b]">
         <SubTab active={view === 'active'} onClick={() => setView('active')}>
           보유 ({positions.length})
         </SubTab>
@@ -124,6 +128,11 @@ export function PortfolioPanel() {
         <SubTab active={view === 'stats'} onClick={() => setView('stats')}>
           성과 분석
         </SubTab>
+        <span className="ml-auto text-[10px] text-slate-500 pr-1">
+          {syncStatus === 'syncing' && '⏳ 동기화 중'}
+          {syncStatus === 'synced' && '☁️ 동기화됨'}
+          {syncStatus === 'error' && '⚠️ 동기화 실패'}
+        </span>
       </div>
 
       {view === 'active' && (
