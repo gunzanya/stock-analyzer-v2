@@ -12,9 +12,12 @@ import {
   bollingerBands,
   bollingerBreakout,
   bollingerSqueeze,
+  ema,
   fibProximity,
   fibonacciLevels,
   rsi,
+  sma,
+  volumeRatio,
 } from './indicators.js';
 
 interface RiskInputs {
@@ -153,6 +156,35 @@ export function extractRiskFactors(inp: RiskInputs): RiskFactor[] {
         });
       } else if (breakout === 'lower') {
         out.push({ severity: 'medium', message: `볼린저 하단 터치 주의` });
+      }
+    }
+  }
+
+  // MA convergence + volume breakout
+  if (inp.stockBars && inp.stockBars.length >= 200) {
+    const bars = inp.stockBars;
+    const ema20 = ema(bars, 20);
+    const sma50 = sma(bars, 50);
+    const sma200 = sma(bars, 200);
+    if (ema20 != null && sma50 != null && sma200 != null) {
+      const maMax = Math.max(ema20, sma50, sma200);
+      const maMin = Math.min(ema20, sma50, sma200);
+      const spread = maMax > 0 ? (maMax - maMin) / maMax : 1;
+      if (spread <= 0.10) {
+        const close = bars[0].close;
+        const vr = volumeRatio(bars);
+        const allAbove = close > ema20 && close > sma50 && close > sma200;
+        if (allAbove && vr != null && vr >= 1.5) {
+          out.push({
+            severity: 'low',
+            message: `🔥 이평선 수렴 후 거래량 돌파 (EMA20/SMA50/SMA200 ${(spread * 100).toFixed(1)}% 밴드, 거래량 ${vr.toFixed(2)}x)`,
+          });
+        } else {
+          out.push({
+            severity: 'low',
+            message: `이평선 수렴 중 (${(spread * 100).toFixed(1)}% 밴드) — 큰 움직임 대기`,
+          });
+        }
       }
     }
   }

@@ -21,6 +21,7 @@ import {
   return30d,
   rsi as rsiOf,
   rsiDivergence as rsiDivergenceOf,
+  sma,
   supportResistanceClusters,
   volumePattern as volumePatternOf,
   volumeRatio,
@@ -49,6 +50,13 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
   const obvDiv = obvBearishDivergence(stockBars);
   const r30 = return30d(stockBars);
   const { rs, excess } = relativeStrength(stockBars, benchmarkBars, { absoluteMode });
+
+  // 52-week high proximity — used for surge softening and convergence breakout
+  let near52wHigh = false;
+  if (stockBars.length >= 252) {
+    const high1y = Math.max(...stockBars.slice(0, 252).map((b) => b.high ?? b.close));
+    near52wHigh = high1y > 0 && stockBars[0].close / high1y >= 0.90;
+  }
 
   // ---------- Gains (base technical strength) ----------
   if (adxVal != null && adxVal >= 25) {
@@ -156,10 +164,14 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
         delta: 10,
       });
     } else if (dist > 0.10) {
-      deductions.push({
-        reason: `EMA20 +${pct.toFixed(1)}% (>10% 과이격) → -5`,
-        delta: -5,
-      });
+      if (near52wHigh) {
+        gains.push({ reason: `EMA20 +${pct.toFixed(1)}% (과이격이나 52주 고점 90%+ → 면제)`, delta: 0 });
+      } else {
+        deductions.push({
+          reason: `EMA20 +${pct.toFixed(1)}% (>10% 과이격) → -5`,
+          delta: -5,
+        });
+      }
     } else if (dist > 0.05) {
       gains.push({
         reason: `EMA20 +${pct.toFixed(1)}% (5-10% 상승 중) → +5`,
@@ -256,6 +268,33 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
     }
   }
 
+  // ---------- MA Convergence + Volume Breakout ----------
+  const ema20v = ema(stockBars, 20);
+  const sma50v = sma(stockBars, 50);
+  const sma200v = stockBars.length >= 200 ? sma(stockBars, 200) : null;
+  if (ema20v != null && sma50v != null && sma200v != null) {
+    const maVals = [ema20v, sma50v, sma200v];
+    const maMax = Math.max(...maVals);
+    const maMin = Math.min(...maVals);
+    const spread = maMax > 0 ? (maMax - maMin) / maMax : 1;
+    const close = stockBars[0].close;
+    const allAbove = close > ema20v && close > sma50v && close > sma200v;
+
+    if (spread <= 0.10) {
+      if (allAbove && vr != null && vr >= 1.5) {
+        gains.push({
+          reason: `이평선 수렴 돌파 (EMA20/SMA50/SMA200 ${(spread * 100).toFixed(1)}% 밴드 + 거래량 ${vr.toFixed(2)}x + 종가 위) → +10`,
+          delta: 10,
+        });
+      } else {
+        gains.push({
+          reason: `이평선 수렴 중 (${(spread * 100).toFixed(1)}% 밴드) — 큰 움직임 대기`,
+          delta: 0,
+        });
+      }
+    }
+  }
+
   // ---------- RSI Divergence ----------
   const rsiDiv = rsiDivergenceOf(stockBars);
   if (rsiDiv === 'bearish') {
@@ -327,7 +366,11 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
     deductions.push({ reason: `OBV 다이버전스 (가격↑ OBV↓) → -15`, delta: -15 });
   }
   if (r30 != null && r30 > 0.20) {
-    deductions.push({ reason: `30일 +${(r30 * 100).toFixed(0)}% 급등 → -10 (눌림 위험)`, delta: -10 });
+    if (near52wHigh) {
+      deductions.push({ reason: `30일 +${(r30 * 100).toFixed(0)}% 급등 → -5 (52주 고점 90%+ 감경)`, delta: -5 });
+    } else {
+      deductions.push({ reason: `30일 +${(r30 * 100).toFixed(0)}% 급등 → -10 (눌림 위험)`, delta: -10 });
+    }
   }
   // Sector-lag deduction tightened — only fire on clear underperformance
   if (excess != null && excess < -0.15) {
