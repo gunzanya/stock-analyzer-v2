@@ -18,6 +18,7 @@ import { PriceChart } from './PriceChart.js';
 import { TypeInsightCard } from './TypeInsightCard.js';
 import { TypeAuxCard } from './TypeAuxCard.js';
 import { RiskFactorsCard } from './RiskFactorsCard.js';
+import { TimingDetailCard } from './TimingDetailCard.js';
 
 const STOCK_TYPE_ORDER: StockType[] = [
   'FAST_GROWER',
@@ -322,6 +323,13 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
           timing={result.timingScore}
         />
       </div>
+
+      {/* Timing precision analysis */}
+      {result.timingDetail && (
+        <div className="px-5 pt-4">
+          <TimingDetailCard detail={result.timingDetail} />
+        </div>
+      )}
 
       {/* Strategy */}
       <div className="px-5 pt-4">

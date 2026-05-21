@@ -249,6 +249,40 @@ export interface AnalysisResult {
     sma50: number | null;
     sma200: number | null;
   };
+  timingDetail: TimingDetail | null;
   priceBars: PriceBar[]; // for chart (last ~130 days)
   usdKrwRate: number | null; // USD/KRW spot, null on fetch failure
+}
+
+// ---- Timing precision analysis (5 sub-signals) ----
+
+export interface TimingDetail {
+  rsiDivergence: {
+    signal: 'bearish' | 'bullish' | 'none';
+    description: string;
+  };
+  ema20Slope: {
+    slope: number;
+    signal: 'strong_up' | 'up' | 'flat' | 'down' | 'strong_down';
+    description: string;
+  } | null;
+  volumePattern: {
+    ratio: number;
+    signal: 'accumulation' | 'distribution' | 'neutral';
+    description: string;
+  } | null;
+  atrTrend: {
+    changeRatio: number;
+    signal: 'expanding' | 'contracting' | 'stable';
+    description: string;
+  } | null;
+  supportResistance: {
+    clusters: Array<{
+      price: number;
+      sources: string[];
+      distancePct: number;
+      type: 'support' | 'resistance';
+    }>;
+    description: string;
+  };
 }

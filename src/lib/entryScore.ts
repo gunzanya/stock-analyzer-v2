@@ -6,9 +6,11 @@
 import type { TimingScoreResult, PriceBar, StockType } from './types.js';
 import {
   adx as adxOf,
+  atrTrend as atrTrendOf,
   bollingerBands,
   bollingerBreakout,
   ema,
+  ema20Slope as ema20SlopeOf,
   fibProximity,
   fibonacciLevels,
   macd,
@@ -18,6 +20,9 @@ import {
   relativeStrength,
   return30d,
   rsi as rsiOf,
+  rsiDivergence as rsiDivergenceOf,
+  supportResistanceClusters,
+  volumePattern as volumePatternOf,
   volumeRatio,
 } from './indicators.js';
 
@@ -249,6 +254,56 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
         delta: 3,
       });
     }
+  }
+
+  // ---------- RSI Divergence ----------
+  const rsiDiv = rsiDivergenceOf(stockBars);
+  if (rsiDiv === 'bearish') {
+    deductions.push({ reason: 'RSI 약세 다이버전스 (주가↑ RSI↓) → -7', delta: -7 });
+  } else if (rsiDiv === 'bullish') {
+    gains.push({ reason: 'RSI 강세 다이버전스 (주가↓ RSI↑) → +7 (숨은 반등)', delta: 7 });
+  }
+
+  // ---------- EMA20 Slope ----------
+  const emaSlope = ema20SlopeOf(stockBars);
+  if (emaSlope) {
+    if (emaSlope.signal === 'strong_up') {
+      gains.push({ reason: `EMA20 기울기 +${emaSlope.slope.toFixed(2)}%/일 → +5 (강한 모멘텀)`, delta: 5 });
+    } else if (emaSlope.signal === 'flat') {
+      deductions.push({ reason: `EMA20 기울기 평평 → -3 (모멘텀 둔화)`, delta: -3 });
+    } else if (emaSlope.signal === 'down' || emaSlope.signal === 'strong_down') {
+      deductions.push({ reason: `EMA20 기울기 ${emaSlope.slope.toFixed(2)}%/일 → -5 (하락 전환)`, delta: -5 });
+    }
+  }
+
+  // ---------- Volume Pattern (up-day vs down-day) ----------
+  const volPat = volumePatternOf(stockBars);
+  if (volPat) {
+    if (volPat.signal === 'accumulation') {
+      gains.push({ reason: `상승일/하락일 거래량비 ${volPat.ratio.toFixed(2)} → +5 (건강한 매집)`, delta: 5 });
+    } else if (volPat.signal === 'distribution') {
+      deductions.push({ reason: `상승일/하락일 거래량비 ${volPat.ratio.toFixed(2)} → -5 (분배 진행)`, delta: -5 });
+    }
+  }
+
+  // ---------- ATR Trend ----------
+  const atrT = atrTrendOf(stockBars);
+  if (atrT) {
+    if (atrT.signal === 'contracting') {
+      gains.push({ reason: `ATR 압축 (${atrT.changeRatio.toFixed(2)}x) → +3 (에너지 응축)`, delta: 3 });
+    } else if (atrT.signal === 'expanding' && r30 != null && r30 < -0.05) {
+      deductions.push({ reason: `ATR 확대 + 하락 → -3 (하방 변동성)`, delta: -3 });
+    }
+  }
+
+  // ---------- Support/Resistance Cluster ----------
+  const srClusters = supportResistanceClusters(stockBars);
+  const nearSupport = srClusters.find((c) => c.type === 'support' && c.distancePct < 3);
+  if (nearSupport) {
+    gains.push({
+      reason: `${nearSupport.sources.join('+')} 지지 클러스터 근접 (${nearSupport.distancePct.toFixed(1)}%) → +5`,
+      delta: 5,
+    });
   }
 
   // ---------- Deductions (per stage 5 spec, slightly softened) ----------

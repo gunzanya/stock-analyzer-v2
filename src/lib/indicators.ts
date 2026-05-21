@@ -653,3 +653,230 @@ export function bollingerBreakout(
   if (lower != null && px <= lower) return 'lower';
   return 'none';
 }
+
+// ---------- RSI Divergence ----------
+
+export type RsiDivergence = 'bearish' | 'bullish' | 'none';
+
+/** Detect RSI divergence over `lookback` bars (default 30).
+ *  Bearish: price makes higher high but RSI makes lower high.
+ *  Bullish: price makes lower low but RSI makes higher low. */
+export function rsiDivergence(bars: PriceBar[], lookback = 30): RsiDivergence {
+  if (bars.length < lookback + 14) return 'none';
+  const xs = [...bars].reverse();
+  const n = xs.length;
+  const rsiSeries: number[] = [];
+  {
+    let avgGain = 0;
+    let avgLoss = 0;
+    for (let i = 1; i <= 14; i++) {
+      const diff = xs[i].close - xs[i - 1].close;
+      if (diff >= 0) avgGain += diff;
+      else avgLoss += -diff;
+    }
+    avgGain /= 14;
+    avgLoss /= 14;
+    rsiSeries.push(avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss));
+    for (let i = 15; i < n; i++) {
+      const diff = xs[i].close - xs[i - 1].close;
+      avgGain = (avgGain * 13 + (diff > 0 ? diff : 0)) / 14;
+      avgLoss = (avgLoss * 13 + (diff < 0 ? -diff : 0)) / 14;
+      rsiSeries.push(avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss));
+    }
+  }
+
+  const recentLen = Math.min(lookback, rsiSeries.length);
+  const rsiRecent = rsiSeries.slice(-recentLen);
+  const priceRecent = xs.slice(-recentLen);
+
+  const half = Math.floor(recentLen / 2);
+  const firstHalfPrice = priceRecent.slice(0, half);
+  const secondHalfPrice = priceRecent.slice(half);
+  const firstHalfRsi = rsiRecent.slice(0, half);
+  const secondHalfRsi = rsiRecent.slice(half);
+
+  const maxPrice1 = Math.max(...firstHalfPrice.map((b) => b.high ?? b.close));
+  const maxPrice2 = Math.max(...secondHalfPrice.map((b) => b.high ?? b.close));
+  const maxRsi1 = Math.max(...firstHalfRsi);
+  const maxRsi2 = Math.max(...secondHalfRsi);
+
+  if (maxPrice2 > maxPrice1 && maxRsi2 < maxRsi1 - 3) return 'bearish';
+
+  const minPrice1 = Math.min(...firstHalfPrice.map((b) => b.low ?? b.close));
+  const minPrice2 = Math.min(...secondHalfPrice.map((b) => b.low ?? b.close));
+  const minRsi1 = Math.min(...firstHalfRsi);
+  const minRsi2 = Math.min(...secondHalfRsi);
+
+  if (minPrice2 < minPrice1 && minRsi2 > minRsi1 + 3) return 'bullish';
+
+  return 'none';
+}
+
+// ---------- EMA20 Slope ----------
+
+export interface Ema20Slope {
+  slope: number;
+  signal: 'strong_up' | 'up' | 'flat' | 'down' | 'strong_down';
+}
+
+/** EMA20 slope: rate of change over the last 5 bars as a percentage of price.
+ *  strong_up: >0.3%/day, up: >0.1%, flat: ±0.1%, down: <-0.1%, strong_down: <-0.3% */
+export function ema20Slope(bars: PriceBar[]): Ema20Slope | null {
+  if (bars.length < 25) return null;
+  const xs = [...bars].reverse();
+  const k = 2 / 21;
+  let value = xs.slice(0, 20).reduce((a, b) => a + b.close, 0) / 20;
+  const emaVals: number[] = [value];
+  for (let i = 20; i < xs.length; i++) {
+    value = xs[i].close * k + value * (1 - k);
+    emaVals.push(value);
+  }
+  const len = emaVals.length;
+  if (len < 6) return null;
+  const now = emaVals[len - 1];
+  const then = emaVals[len - 6];
+  const avgPrice = now;
+  if (avgPrice <= 0) return null;
+  const slope = ((now - then) / then) * 100 / 5;
+  let signal: Ema20Slope['signal'];
+  if (slope > 0.3) signal = 'strong_up';
+  else if (slope > 0.1) signal = 'up';
+  else if (slope > -0.1) signal = 'flat';
+  else if (slope > -0.3) signal = 'down';
+  else signal = 'strong_down';
+  return { slope, signal };
+}
+
+// ---------- Volume Pattern (up-day vs down-day) ----------
+
+export interface VolumePattern {
+  upDayVolume: number;
+  downDayVolume: number;
+  ratio: number;
+  signal: 'accumulation' | 'distribution' | 'neutral';
+}
+
+/** Compare average volume on up-days vs down-days over the last `window` bars.
+ *  ratio > 1.2 = accumulation (healthy buying), < 0.8 = distribution (selling). */
+export function volumePattern(bars: PriceBar[], window = 20): VolumePattern | null {
+  if (bars.length < window + 1) return null;
+  const slice = bars.slice(0, window);
+  let upVol = 0;
+  let upCount = 0;
+  let downVol = 0;
+  let downCount = 0;
+  for (let i = 0; i < slice.length; i++) {
+    const prev = bars[i + 1];
+    if (!prev || slice[i].volume == null) continue;
+    if (slice[i].close > prev.close) {
+      upVol += slice[i].volume!;
+      upCount++;
+    } else if (slice[i].close < prev.close) {
+      downVol += slice[i].volume!;
+      downCount++;
+    }
+  }
+  if (upCount === 0 || downCount === 0) return null;
+  const avgUp = upVol / upCount;
+  const avgDown = downVol / downCount;
+  if (avgDown <= 0) return null;
+  const ratio = avgUp / avgDown;
+  let signal: VolumePattern['signal'];
+  if (ratio > 1.2) signal = 'accumulation';
+  else if (ratio < 0.8) signal = 'distribution';
+  else signal = 'neutral';
+  return { upDayVolume: avgUp, downDayVolume: avgDown, ratio, signal };
+}
+
+// ---------- ATR Trend (expanding / contracting) ----------
+
+export interface AtrTrend {
+  current: number;
+  previous: number;
+  changeRatio: number;
+  signal: 'expanding' | 'contracting' | 'stable';
+}
+
+/** Compare current ATR(14) to ATR(14) from 10 bars ago.
+ *  Expanding = volatility increasing (big move coming or underway).
+ *  Contracting = energy compression (Bollinger squeeze analog). */
+export function atrTrend(bars: PriceBar[]): AtrTrend | null {
+  if (bars.length < 40) return null;
+  const currentAtr = atr(bars);
+  const prevBars = bars.slice(10);
+  const prevAtr = atr(prevBars);
+  if (currentAtr == null || prevAtr == null || prevAtr <= 0) return null;
+  const changeRatio = currentAtr / prevAtr;
+  let signal: AtrTrend['signal'];
+  if (changeRatio > 1.2) signal = 'expanding';
+  else if (changeRatio < 0.8) signal = 'contracting';
+  else signal = 'stable';
+  return { current: currentAtr, previous: prevAtr, changeRatio, signal };
+}
+
+// ---------- Support/Resistance Cluster ----------
+
+export interface SupportResistanceCluster {
+  price: number;
+  sources: string[];
+  distancePct: number;
+  type: 'support' | 'resistance';
+}
+
+/** Find price levels where multiple indicators converge (MA + Fib).
+ *  Returns up to 3 clusters sorted by proximity to current price. */
+export function supportResistanceClusters(bars: PriceBar[]): SupportResistanceCluster[] {
+  if (bars.length < 50) return [];
+  const px = bars[0].close;
+  if (!px || px <= 0) return [];
+
+  const levels: { price: number; source: string }[] = [];
+
+  const sma50Val = sma(bars, 50);
+  if (sma50Val != null) levels.push({ price: sma50Val, source: 'SMA50' });
+
+  if (bars.length >= 200) {
+    const sma200Val = sma(bars, 200);
+    if (sma200Val != null) levels.push({ price: sma200Val, source: 'SMA200' });
+  }
+
+  const ema20Val = ema(bars, 20);
+  if (ema20Val != null) levels.push({ price: ema20Val, source: 'EMA20' });
+
+  const fib = fibonacciLevels(bars);
+  if (fib) {
+    levels.push({ price: fib.level382, source: 'Fib38.2%' });
+    levels.push({ price: fib.level500, source: 'Fib50%' });
+    levels.push({ price: fib.level618, source: 'Fib61.8%' });
+  }
+
+  const tolerance = px * 0.03;
+  const clusters: SupportResistanceCluster[] = [];
+  const used = new Set<number>();
+
+  for (let i = 0; i < levels.length; i++) {
+    if (used.has(i)) continue;
+    const group = [levels[i]];
+    used.add(i);
+    for (let j = i + 1; j < levels.length; j++) {
+      if (used.has(j)) continue;
+      if (Math.abs(levels[j].price - levels[i].price) <= tolerance) {
+        group.push(levels[j]);
+        used.add(j);
+      }
+    }
+    if (group.length >= 2) {
+      const avgPrice = group.reduce((a, g) => a + g.price, 0) / group.length;
+      const distancePct = ((px - avgPrice) / px) * 100;
+      clusters.push({
+        price: avgPrice,
+        sources: group.map((g) => g.source),
+        distancePct: Math.abs(distancePct),
+        type: avgPrice < px ? 'support' : 'resistance',
+      });
+    }
+  }
+
+  clusters.sort((a, b) => a.distancePct - b.distancePct);
+  return clusters.slice(0, 3);
+}
