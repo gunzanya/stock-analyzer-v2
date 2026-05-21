@@ -4,6 +4,7 @@ import type { AnalysisResult } from './lib/types.js';
 import { loadFavorites, saveFavorites } from './lib/favorites.js';
 import { StockCard } from './components/StockCard.js';
 import { ScreenerPanel } from './components/ScreenerPanel.js';
+import { TickerInput } from './components/TickerInput.js';
 
 type Tab = 'analyze' | 'screener';
 
@@ -118,17 +119,11 @@ function App() {
                 }}
                 className="flex flex-col sm:flex-row gap-2"
               >
-                <input
-                  type="text"
+                <TickerInput
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder="티커 입력 (NVDA, AAPL, 005930.KS...)"
-                  className="flex-1 min-h-[44px] px-3 py-2 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-base text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  aria-label="티커 목록"
-                  autoCapitalize="characters"
-                  autoCorrect="off"
-                  autoComplete="off"
-                  spellCheck={false}
+                  onChange={setInput}
+                  onSubmit={(t) => void runAnalysis(t)}
+                  disabled={cards.some((c) => c.status === 'loading')}
                 />
                 <button
                   type="submit"

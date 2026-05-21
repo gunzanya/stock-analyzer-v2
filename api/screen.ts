@@ -3,7 +3,7 @@ import { analyzeOne } from './analyze.js';
 import { fetchScreenerPool, type ScreenerFilter } from './fetchStock.js';
 import { SCREENER_POOL } from '../src/lib/screenerPool.js';
 import { SP500 } from '../src/lib/sp500.js';
-import { KR_STOCKS } from '../src/lib/krStocks.js';
+import { KR_TICKERS } from '../src/lib/krStocks.js';
 import type { AnalysisResult } from '../src/lib/types.js';
 import type { ScreenerSummary } from '../src/lib/screenerTypes.js';
 
@@ -70,7 +70,7 @@ function sampleFrom(pool: readonly string[], n: number): string[] {
  *  works offline. */
 async function buildPool(filter: ScreenerFilter): Promise<string[]> {
   if (filter === 'kr') {
-    return [...KR_STOCKS];
+    return [...KR_TICKERS];
   }
   const opts =
     filter === 'large_cap'
