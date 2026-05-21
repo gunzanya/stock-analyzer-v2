@@ -23,6 +23,7 @@ export function AddToPortfolioModal({
   onClose,
   onAdded,
 }: Props) {
+  const [qty, setQty] = useState('100');
   const [entry, setEntry] = useState(currentPrice?.toString() ?? '');
   const [stop, setStop] = useState(stopPrice?.toString() ?? '');
   const [target, setTarget] = useState(targetPrice?.toString() ?? '');
@@ -32,12 +33,15 @@ export function AddToPortfolioModal({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const entryPrice = parseFloat(entry);
+    const quantity = parseInt(qty, 10);
     if (!Number.isFinite(entryPrice) || entryPrice <= 0) return;
+    if (!Number.isFinite(quantity) || quantity <= 0) return;
 
     addPosition({
       id: genId(),
       ticker,
       name,
+      quantity,
       entryPrice,
       stopPrice: parseFloat(stop) || null,
       targetPrice: parseFloat(target) || null,
@@ -67,6 +71,7 @@ export function AddToPortfolioModal({
         </p>
 
         <div className="space-y-3">
+          <Field label="수량" value={qty} onChange={setQty} required />
           <Field label="진입가" value={entry} onChange={setEntry} required />
           <Field label="손절가" value={stop} onChange={setStop} />
           <Field label="목표가" value={target} onChange={setTarget} />

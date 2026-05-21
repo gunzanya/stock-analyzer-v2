@@ -4,10 +4,11 @@ export interface PortfolioPosition {
   id: string;
   ticker: string;
   name: string;
+  quantity: number;
   entryPrice: number;
   stopPrice: number | null;
   targetPrice: number | null;
-  entryDate: string; // ISO yyyy-mm-dd
+  entryDate: string;
   scores: { fundamental: number; timing: number; overall: number };
   strategyTag: StrategyTag;
   memo: string;
@@ -18,6 +19,7 @@ export interface ClosedPosition extends PortfolioPosition {
   closeDate: string;
   returnPct: number;
   holdingDays: number;
+  closedQuantity: number;
 }
 
 const POS_KEY = 'portfolio_positions';
@@ -37,7 +39,10 @@ function write<T>(key: string, data: T[]) {
 }
 
 export function loadPositions(): PortfolioPosition[] {
-  return read<PortfolioPosition>(POS_KEY);
+  return read<PortfolioPosition>(POS_KEY).map((p) => ({
+    ...p,
+    quantity: p.quantity ?? 100,
+  }));
 }
 
 export function savePositions(positions: PortfolioPosition[]) {
@@ -45,7 +50,11 @@ export function savePositions(positions: PortfolioPosition[]) {
 }
 
 export function loadClosed(): ClosedPosition[] {
-  return read<ClosedPosition>(CLOSED_KEY);
+  return read<ClosedPosition>(CLOSED_KEY).map((c) => ({
+    ...c,
+    quantity: c.quantity ?? 100,
+    closedQuantity: c.closedQuantity ?? c.quantity ?? 100,
+  }));
 }
 
 export function saveClosed(closed: ClosedPosition[]) {
@@ -62,7 +71,7 @@ export function removePosition(id: string) {
   savePositions(loadPositions().filter((p) => p.id !== id));
 }
 
-export function closePosition(id: string, closePrice: number) {
+export function closePosition(id: string, closePrice: number, pct: number = 1) {
   const positions = loadPositions();
   const pos = positions.find((p) => p.id === id);
   if (!pos) return;
@@ -76,6 +85,8 @@ export function closePosition(id: string, closePrice: number) {
     ),
   );
   const returnPct = (closePrice - pos.entryPrice) / pos.entryPrice;
+  const closedQty = Math.round(pos.quantity * pct);
+  const remainQty = pos.quantity - closedQty;
 
   const closed: ClosedPosition = {
     ...pos,
@@ -83,12 +94,21 @@ export function closePosition(id: string, closePrice: number) {
     closeDate,
     returnPct,
     holdingDays,
+    closedQuantity: closedQty,
   };
 
   const allClosed = loadClosed();
   allClosed.push(closed);
   saveClosed(allClosed);
-  removePosition(id);
+
+  if (remainQty <= 0) {
+    removePosition(id);
+  } else {
+    const updated = positions.map((p) =>
+      p.id === id ? { ...p, quantity: remainQty } : p,
+    );
+    savePositions(updated);
+  }
 }
 
 export function genId(): string {
