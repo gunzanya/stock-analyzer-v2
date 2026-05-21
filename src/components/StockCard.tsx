@@ -17,6 +17,7 @@ import { TypeInsightCard } from './TypeInsightCard.js';
 import { TypeAuxCard } from './TypeAuxCard.js';
 import { RiskFactorsCard } from './RiskFactorsCard.js';
 import { TimingDetailCard } from './TimingDetailCard.js';
+import { AddToPortfolioModal } from './AddToPortfolioModal.js';
 
 const STOCK_TYPE_ORDER: StockType[] = [
   'FAST_GROWER',
@@ -74,6 +75,7 @@ interface Props {
 
 export function StockCard({ result, isFavorite = false, onToggleFavorite }: Props) {
   const [open, setOpen] = useState(false);
+  const [showPortfolioModal, setShowPortfolioModal] = useState(false);
   const [override, setOverride] = useState<StockType | null>(null);
   const f = result.fundamental;
   const cls = result.classification;
@@ -328,6 +330,34 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
       <div className="px-5 pt-4">
         <StrategyCard strategy={displayStrategy} currency={displayCurrency} />
       </div>
+
+      {/* Portfolio add button */}
+      <div className="px-5 pt-3">
+        <button
+          type="button"
+          onClick={() => setShowPortfolioModal(true)}
+          className="w-full min-h-[40px] px-4 py-2 rounded-lg border border-indigo-700/40 bg-indigo-950/20 text-sm font-medium text-indigo-300 hover:bg-indigo-900/30 active:bg-indigo-900/50 transition-colors"
+        >
+          💼 포트폴리오 추가
+        </button>
+      </div>
+
+      {showPortfolioModal && (
+        <AddToPortfolioModal
+          ticker={f.ticker}
+          name={f.name}
+          currentPrice={f.price}
+          stopPrice={strategy.stop}
+          targetPrice={strategy.target1}
+          scores={{
+            fundamental: fundamentalScore.score,
+            timing: result.timingScore.score,
+            overall: overallScore.score,
+          }}
+          onClose={() => setShowPortfolioModal(false)}
+          onAdded={() => setShowPortfolioModal(false)}
+        />
+      )}
 
       {/* Price chart */}
       <div className="px-5 pt-4">

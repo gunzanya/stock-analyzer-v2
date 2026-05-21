@@ -1,0 +1,96 @@
+export type StrategyTag = 'A' | 'B';
+
+export interface PortfolioPosition {
+  id: string;
+  ticker: string;
+  name: string;
+  entryPrice: number;
+  stopPrice: number | null;
+  targetPrice: number | null;
+  entryDate: string; // ISO yyyy-mm-dd
+  scores: { fundamental: number; timing: number; overall: number };
+  strategyTag: StrategyTag;
+  memo: string;
+}
+
+export interface ClosedPosition extends PortfolioPosition {
+  closePrice: number;
+  closeDate: string;
+  returnPct: number;
+  holdingDays: number;
+}
+
+const POS_KEY = 'portfolio_positions';
+const CLOSED_KEY = 'portfolio_closed';
+
+function read<T>(key: string): T[] {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function write<T>(key: string, data: T[]) {
+  localStorage.setItem(key, JSON.stringify(data));
+}
+
+export function loadPositions(): PortfolioPosition[] {
+  return read<PortfolioPosition>(POS_KEY);
+}
+
+export function savePositions(positions: PortfolioPosition[]) {
+  write(POS_KEY, positions);
+}
+
+export function loadClosed(): ClosedPosition[] {
+  return read<ClosedPosition>(CLOSED_KEY);
+}
+
+export function saveClosed(closed: ClosedPosition[]) {
+  write(CLOSED_KEY, closed);
+}
+
+export function addPosition(pos: PortfolioPosition) {
+  const all = loadPositions();
+  all.push(pos);
+  savePositions(all);
+}
+
+export function removePosition(id: string) {
+  savePositions(loadPositions().filter((p) => p.id !== id));
+}
+
+export function closePosition(id: string, closePrice: number) {
+  const positions = loadPositions();
+  const pos = positions.find((p) => p.id === id);
+  if (!pos) return;
+
+  const closeDate = new Date().toISOString().slice(0, 10);
+  const holdingDays = Math.max(
+    1,
+    Math.round(
+      (new Date(closeDate).getTime() - new Date(pos.entryDate).getTime()) /
+        86_400_000,
+    ),
+  );
+  const returnPct = (closePrice - pos.entryPrice) / pos.entryPrice;
+
+  const closed: ClosedPosition = {
+    ...pos,
+    closePrice,
+    closeDate,
+    returnPct,
+    holdingDays,
+  };
+
+  const allClosed = loadClosed();
+  allClosed.push(closed);
+  saveClosed(allClosed);
+  removePosition(id);
+}
+
+export function genId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}

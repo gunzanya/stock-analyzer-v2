@@ -5,8 +5,9 @@ import { loadFavorites, saveFavorites } from './lib/favorites.js';
 import { StockCard } from './components/StockCard.js';
 import { ScreenerPanel } from './components/ScreenerPanel.js';
 import { TickerInput } from './components/TickerInput.js';
+import { PortfolioPanel } from './components/PortfolioPanel.js';
 
-type Tab = 'analyze' | 'screener';
+type Tab = 'analyze' | 'screener' | 'portfolio';
 
 interface CardState {
   ticker: string;
@@ -108,6 +109,9 @@ function App() {
             <TabButton active={tab === 'screener'} onClick={() => setTab('screener')}>
               🎲 스크리너
             </TabButton>
+            <TabButton active={tab === 'portfolio'} onClick={() => setTab('portfolio')}>
+              💼 포트폴리오
+            </TabButton>
           </div>
 
           {tab === 'analyze' && (
@@ -160,7 +164,9 @@ function App() {
       </header>
 
       <main className="max-w-6xl mx-auto p-4">
-        {tab === 'screener' ? (
+        {tab === 'portfolio' ? (
+          <PortfolioPanel />
+        ) : tab === 'screener' ? (
           <ScreenerPanel
             favorites={favorites}
             onToggleFavorite={toggleFavorite}
