@@ -4,8 +4,10 @@ import {
   loadClosed,
   loadPositions,
   removePosition,
+  updatePosition,
   type ClosedPosition,
   type PortfolioPosition,
+  type StrategyTag,
 } from '../lib/portfolio.js';
 import { fetchAnalysis } from '../lib/api.js';
 import { onSyncStatus } from '../lib/sync.js';
@@ -45,6 +47,7 @@ export function PortfolioPanel() {
   const [loading, setLoading] = useState(false);
   const [closeModal, setCloseModal] = useState<{ id: string; pct: number } | null>(null);
   const [closePrice, setClosePrice] = useState('');
+  const [editTarget, setEditTarget] = useState<PortfolioPosition | null>(null);
   const [view, setView] = useState<'active' | 'history' | 'stats'>('active');
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
 
@@ -180,6 +183,7 @@ export function PortfolioPanel() {
                     days={holdingDays(p.entryDate)}
                     fxRate={fxRate}
                     onPartialClose={(pct) => openCloseModal(p.id, pct)}
+                    onEdit={() => setEditTarget({ ...p })}
                     onDelete={() => { removePosition(p.id); reload(); }}
                   />
                 ))}
@@ -271,6 +275,125 @@ export function PortfolioPanel() {
           </div>
         </div>
       )}
+
+      {/* Edit modal */}
+      {editTarget && (
+        <EditPositionModal
+          pos={editTarget}
+          onChange={setEditTarget}
+          onSave={() => {
+            updatePosition(editTarget.id, {
+              quantity: editTarget.quantity,
+              entryPrice: editTarget.entryPrice,
+              stopPrice: editTarget.stopPrice,
+              targetPrice: editTarget.targetPrice,
+              memo: editTarget.memo,
+              strategyTag: editTarget.strategyTag,
+            });
+            setEditTarget(null);
+            reload();
+          }}
+          onCancel={() => setEditTarget(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── Edit Position Modal ── */
+
+function EditPositionModal({
+  pos,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  pos: PortfolioPosition;
+  onChange: (p: PortfolioPosition) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const set = (patch: Partial<PortfolioPosition>) => onChange({ ...pos, ...patch });
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div className="w-full max-w-sm rounded-2xl bg-[#0f172a] border border-[#1e293b] p-6 shadow-2xl space-y-4">
+        <h3 className="text-base font-bold text-slate-100">
+          {pos.ticker} <span className="text-xs font-normal text-slate-400">{pos.name}</span>
+        </h3>
+
+        <div className="grid grid-cols-2 gap-3">
+          <EditField label="수량" type="number" value={pos.quantity} onChange={(v) => set({ quantity: Math.max(1, Number(v)) })} />
+          <EditField label="진입가" type="number" value={pos.entryPrice} onChange={(v) => set({ entryPrice: Math.max(0, Number(v)) })} />
+          <EditField label="손절가" type="number" value={pos.stopPrice ?? ''} onChange={(v) => set({ stopPrice: v === '' ? null : Math.max(0, Number(v)) })} />
+          <EditField label="목표가" type="number" value={pos.targetPrice ?? ''} onChange={(v) => set({ targetPrice: v === '' ? null : Math.max(0, Number(v)) })} />
+        </div>
+
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">전략</label>
+          <div className="flex gap-2">
+            {(['A', 'B'] as StrategyTag[]).map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => set({ strategyTag: tag })}
+                className={`flex-1 min-h-[36px] rounded-lg text-xs font-bold transition-colors ${
+                  pos.strategyTag === tag
+                    ? tag === 'A' ? 'bg-amber-900/60 text-amber-200 border border-amber-700' : 'bg-blue-900/60 text-blue-200 border border-blue-700'
+                    : 'bg-slate-800 text-slate-500 border border-[#1e293b]'
+                }`}
+              >
+                {tag === 'A' ? 'A 이른진입' : 'B 확인진입'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">메모</label>
+          <textarea
+            value={pos.memo}
+            onChange={(e) => set({ memo: e.target.value })}
+            rows={2}
+            className="w-full px-3 py-2 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onSave}
+            className="flex-1 min-h-[40px] rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition-colors"
+          >
+            저장
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="min-h-[40px] px-4 rounded-lg border border-[#1e293b] text-slate-400 text-sm transition-colors"
+          >
+            취소
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditField({ label, type, value, onChange }: { label: string; type: string; value: string | number; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">{label}</label>
+      <input
+        type={type}
+        step="any"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full min-h-[36px] px-3 py-1.5 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      />
     </div>
   );
 }
@@ -283,6 +406,7 @@ function PositionCard({
   days,
   fxRate,
   onPartialClose,
+  onEdit,
   onDelete,
 }: {
   pos: PortfolioPosition;
@@ -290,6 +414,7 @@ function PositionCard({
   days: number;
   fxRate: number;
   onPartialClose: (pct: number) => void;
+  onEdit: () => void;
   onDelete: () => void;
 }) {
   const kr = isKR(pos.ticker);
@@ -318,16 +443,26 @@ function PositionCard({
             {pos.strategyTag === 'A' ? 'A 이른진입' : 'B 확인진입'}
           </span>
         </div>
-        {hitStop && (
-          <span className="px-2 py-0.5 rounded bg-red-900/60 text-red-200 text-[10px] font-bold flex-shrink-0">
-            🔴 손절 필요!
-          </span>
-        )}
-        {hitTarget && (
-          <span className="px-2 py-0.5 rounded bg-emerald-900/60 text-emerald-200 text-[10px] font-bold flex-shrink-0">
-            🟢 익절 검토!
-          </span>
-        )}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {hitStop && (
+            <span className="px-2 py-0.5 rounded bg-red-900/60 text-red-200 text-[10px] font-bold">
+              🔴 손절 필요!
+            </span>
+          )}
+          {hitTarget && (
+            <span className="px-2 py-0.5 rounded bg-emerald-900/60 text-emerald-200 text-[10px] font-bold">
+              🟢 익절 검토!
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onEdit}
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 transition-colors text-sm"
+            aria-label="수정"
+          >
+            ✏️
+          </button>
+        </div>
       </div>
 
       {/* Row 2: quantity & investment */}

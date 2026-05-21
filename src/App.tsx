@@ -85,6 +85,14 @@ function App() {
     if (ticker) void runAnalysis(ticker);
   }, [popNav]);
 
+  useEffect(() => {
+    const base = 'Stock Analyzer v2';
+    if (tab === 'portfolio') document.title = `포트폴리오 - ${base}`;
+    else if (tab === 'screener') document.title = `스크리너 - ${base}`;
+    else if (cards.length > 0) document.title = `${cards.map((c) => c.ticker).join(', ')} - ${base}`;
+    else document.title = base;
+  }, [tab, cards]);
+
   function changeTab(next: Tab) {
     setTab(next);
     pushURL(next);

@@ -63,6 +63,10 @@ export function saveClosed(closed: ClosedPosition[], sync = true) {
   if (sync) import('./sync.js').then((m) => m.pushToServer());
 }
 
+export function updatePosition(id: string, patch: Partial<Omit<PortfolioPosition, 'id' | 'ticker' | 'name'>>) {
+  savePositions(loadPositions().map((p) => (p.id === id ? { ...p, ...patch } : p)));
+}
+
 export function addPosition(pos: PortfolioPosition) {
   const all = loadPositions();
   all.push(pos);
