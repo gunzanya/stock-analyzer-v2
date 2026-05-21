@@ -89,11 +89,14 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
   const effectiveType: StockType = override ?? cls.primary;
   const isOverride = override !== null;
 
-  const { fundamentalScore, overallScore, typeInsight, strategy } = useMemo(() => {
+  // Scores are always server-computed and type-independent.
+  const fundamentalScore = result.fundamentalScore;
+  const overallScore = result.overallScore;
+
+  // Only typeInsight + strategy change with override.
+  const { typeInsight, strategy } = useMemo(() => {
     if (!isOverride) {
       return {
-        fundamentalScore: result.fundamentalScore,
-        overallScore: result.overallScore,
         typeInsight: result.typeInsight,
         strategy: result.strategy,
       };
@@ -108,25 +111,17 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
       display: '',
       uncertain: false,
     };
-    const overrideStrategy: StrategyResult =
-      result.priceBars.length >= 50
-        ? computeStrategy(result.priceBars, syntheticCls)
-        : result.strategy;
-    // Fundamental score is type-independent (universal weights).
-    // Reuse the server-computed score — no recalculation needed.
     return {
-      fundamentalScore: result.fundamentalScore,
-      overallScore: result.overallScore,
       typeInsight: getTypeInsight(override!),
-      strategy: overrideStrategy,
+      strategy:
+        result.priceBars.length >= 50
+          ? computeStrategy(result.priceBars, syntheticCls)
+          : result.strategy,
     };
   }, [
     isOverride,
     override,
     result.priceBars,
-    result.fundamentalScore,
-    result.overallScore,
-    result.timingScore,
     result.typeInsight,
     result.strategy,
     cls.candidates,
