@@ -16,7 +16,6 @@ function fmt(v: number | null, currency: string): string {
 export function StrategyCard({ strategy, currency }: Props) {
   const c = currency ?? 'USD';
   const rrBad = strategy.riskReward1 != null && strategy.riskReward1 < 1.0;
-  const rrWarn = strategy.riskReward1 != null && strategy.riskReward1 < 1.5 && !rrBad;
   return (
     <section className="rounded-xl bg-[#0f172a] border border-[#1e293b] p-5">
       <h3 className="text-xs font-semibold text-slate-400 mb-4 tracking-wider uppercase">

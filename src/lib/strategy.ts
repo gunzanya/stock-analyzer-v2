@@ -26,17 +26,6 @@ function round(v: number, digits = 2): number {
   return Math.round(v * p) / p;
 }
 
-/** 52-week (252 trading days) high from newest-first bars. */
-function high52w(bars: PriceBar[]): number | null {
-  const window = bars.slice(0, Math.min(252, bars.length));
-  if (window.length < 20) return null;
-  let max = -Infinity;
-  for (const b of window) {
-    const h = b.high ?? b.close;
-    if (h > max) max = h;
-  }
-  return Number.isFinite(max) ? max : null;
-}
 
 export function computeStrategy(
   bars: PriceBar[],

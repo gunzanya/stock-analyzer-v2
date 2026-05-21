@@ -134,6 +134,8 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
         atr14: null,
         stopRule: '데이터 부족',
         rationale: '가격 데이터가 없어 전략을 산출할 수 없습니다.',
+        exitStrategy: '데이터 부족',
+        rrWarning: null,
       };
   const typeInsight = getTypeInsight(classification.primary);
   const riskFactors = extractRiskFactors({
