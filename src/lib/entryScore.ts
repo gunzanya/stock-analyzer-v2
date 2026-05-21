@@ -315,13 +315,94 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
     }
   }
 
-  // ---------- Volume Pattern (up-day vs down-day) ----------
+  // ---------- Volume Pattern (up-day vs down-day) + trend confirmation ----------
   const volPat = volumePatternOf(stockBars);
   if (volPat) {
     if (volPat.signal === 'accumulation') {
-      gains.push({ reason: `상승일/하락일 거래량비 ${volPat.ratio.toFixed(2)} → +5 (건강한 매집)`, delta: 5 });
+      // Check volume trend confirmation: price up 10d + volume up 10d = confirmed
+      let volConfirmed = true;
+      if (stockBars.length >= 11) {
+        const priceUp10 = stockBars[0].close > stockBars[10].close;
+        if (priceUp10) {
+          const recentVols = stockBars.slice(0, 10).map((b) => b.volume ?? 0);
+          const olderVols = stockBars.slice(5, 15).map((b) => b.volume ?? 0);
+          const avgRecent = recentVols.reduce((a, b) => a + b, 0) / recentVols.length;
+          const avgOlder = olderVols.reduce((a, b) => a + b, 0) / olderVols.length;
+          if (avgOlder > 0 && avgRecent < avgOlder * 0.9) {
+            volConfirmed = false;
+          }
+        }
+      }
+      if (volConfirmed) {
+        gains.push({ reason: `상승일/하락일 거래량비 ${volPat.ratio.toFixed(2)} → +5 (건강한 매집)`, delta: 5 });
+      } else {
+        gains.push({ reason: `상승일/하락일 거래량비 ${volPat.ratio.toFixed(2)} (매집이나 거래량 감소 추세 → 확인 보류)`, delta: 0 });
+      }
     } else if (volPat.signal === 'distribution') {
       deductions.push({ reason: `상승일/하락일 거래량비 ${volPat.ratio.toFixed(2)} → -5 (분배 진행)`, delta: -5 });
+    }
+  }
+
+  // ---------- Momentum Acceleration (10d/20d/60d annualized return) ----------
+  if (stockBars.length >= 61) {
+    const ret = (n: number) => stockBars.length > n ? stockBars[0].close / stockBars[n].close - 1 : null;
+    const r10 = ret(10);
+    const r20 = ret(20);
+    const r60 = ret(60);
+    if (r10 != null && r20 != null && r60 != null) {
+      const ann10 = r10 * (252 / 10);
+      const ann20 = r20 * (252 / 20);
+      const ann60 = r60 * (252 / 60);
+      if (ann10 > ann20 && ann20 > ann60 && ann10 > 0) {
+        gains.push({
+          reason: `모멘텀 가속 (10일 ${(r10 * 100).toFixed(1)}% > 20일 ${(r20 * 100).toFixed(1)}% > 60일 ${(r60 * 100).toFixed(1)}%) → +5`,
+          delta: 5,
+        });
+      } else if (ann10 < ann20 && ann20 < ann60 && ann10 < ann60) {
+        deductions.push({
+          reason: `모멘텀 감속 (10일 ${(r10 * 100).toFixed(1)}% < 20일 ${(r20 * 100).toFixed(1)}% < 60일 ${(r60 * 100).toFixed(1)}%) → -5`,
+          delta: -5,
+        });
+      }
+    }
+  }
+
+  // ---------- MA Slope Alignment (EMA20 + SMA50 + SMA200 all rising/falling) ----------
+  if (stockBars.length >= 205) {
+    const slopeOf = (fn: (b: PriceBar[]) => number | null, bars: PriceBar[]): number | null => {
+      const now = fn(bars);
+      const prev = fn(bars.slice(5));
+      if (now == null || prev == null || prev === 0) return null;
+      return (now - prev) / prev;
+    };
+    const emaS = slopeOf((b) => ema(b, 20), stockBars);
+    const sma50s = slopeOf((b) => sma(b, 50), stockBars);
+    const sma200s = slopeOf((b) => sma(b, 200), stockBars);
+    if (emaS != null && sma50s != null && sma200s != null) {
+      if (emaS > 0 && sma50s > 0 && sma200s > 0) {
+        gains.push({ reason: `이평선 기울기 정렬 (EMA20/SMA50/SMA200 전부 상승) → +5`, delta: 5 });
+      } else if (emaS < 0 && sma50s < 0 && sma200s < 0) {
+        deductions.push({ reason: `이평선 기울기 역정렬 (EMA20/SMA50/SMA200 전부 하락) → -5`, delta: -5 });
+      }
+    }
+  }
+
+  // ---------- 52w High Volume Breakout ----------
+  if (stockBars.length >= 252) {
+    const high1y = Math.max(...stockBars.slice(0, 252).map((b) => b.high ?? b.close));
+    const ratio52 = high1y > 0 ? stockBars[0].close / high1y : 0;
+    if (ratio52 >= 0.98) {
+      if (vr != null && vr >= 1.5) {
+        gains.push({
+          reason: `신고가 거래량 돌파 (52주 고점 ${(ratio52 * 100).toFixed(0)}% + 거래량 ${vr.toFixed(2)}x) → +10`,
+          delta: 10,
+        });
+      } else if (vr != null && vr < 1.0) {
+        gains.push({
+          reason: `신고가 접근이나 거래량 미달 (${vr.toFixed(2)}x) — 가짜 돌파 주의`,
+          delta: 0,
+        });
+      }
     }
   }
 
