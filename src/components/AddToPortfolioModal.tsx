@@ -23,18 +23,27 @@ export function AddToPortfolioModal({
   onClose,
   onAdded,
 }: Props) {
+  const [inputMode, setInputMode] = useState<'qty' | 'amount'>('qty');
   const [qty, setQty] = useState('100');
+  const [amount, setAmount] = useState('');
   const [entry, setEntry] = useState(currentPrice?.toString() ?? '');
   const [stop, setStop] = useState(stopPrice?.toString() ?? '');
   const [target, setTarget] = useState(targetPrice?.toString() ?? '');
   const [tag, setTag] = useState<StrategyTag>('A');
   const [memo, setMemo] = useState('');
 
+  const entryPrice = parseFloat(entry);
+  const validEntry = Number.isFinite(entryPrice) && entryPrice > 0;
+
+  const computedQty = inputMode === 'qty'
+    ? parseInt(qty, 10)
+    : validEntry ? Math.floor(parseFloat(amount) / entryPrice) : 0;
+  const computedTotal = validEntry && computedQty > 0 ? computedQty * entryPrice : null;
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const entryPrice = parseFloat(entry);
-    const quantity = parseInt(qty, 10);
-    if (!Number.isFinite(entryPrice) || entryPrice <= 0) return;
+    if (!validEntry) return;
+    const quantity = computedQty;
     if (!Number.isFinite(quantity) || quantity <= 0) return;
 
     addPosition({
@@ -71,8 +80,46 @@ export function AddToPortfolioModal({
         </p>
 
         <div className="space-y-3">
-          <Field label="수량" value={qty} onChange={setQty} required />
           <Field label="진입가" value={entry} onChange={setEntry} required />
+
+          {/* Quantity / Amount toggle */}
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <ToggleBtn label="수량" active={inputMode === 'qty'} onClick={() => setInputMode('qty')} />
+              <ToggleBtn label="금액" active={inputMode === 'amount'} onClick={() => setInputMode('amount')} />
+            </div>
+            {inputMode === 'qty' ? (
+              <input
+                type="number"
+                step="1"
+                min="1"
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+                required
+                placeholder="주 수"
+                className="w-full min-h-[40px] px-3 py-2 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            ) : (
+              <input
+                type="number"
+                step="any"
+                min="0"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                required
+                placeholder="투자 금액"
+                className="w-full min-h-[40px] px-3 py-2 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            )}
+          </div>
+
+          {/* Computed summary */}
+          {computedTotal != null && computedQty > 0 && (
+            <div className="px-3 py-2 rounded-lg bg-indigo-950/30 border border-indigo-800/30 text-sm text-indigo-200 tabular-nums">
+              {computedQty}주 × {entryPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })} = <span className="font-bold">{computedTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+            </div>
+          )}
+
           <Field label="손절가" value={stop} onChange={setStop} />
           <Field label="목표가" value={target} onChange={setTarget} />
 
@@ -149,6 +196,22 @@ function Field({
         className="w-full min-h-[40px] px-3 py-2 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
       />
     </div>
+  );
+}
+
+function ToggleBtn({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`min-h-[28px] px-3 py-1 rounded text-xs font-medium transition-colors ${
+        active
+          ? 'bg-indigo-600 text-white'
+          : 'bg-[#0a0f1a] border border-[#1e293b] text-slate-400 hover:text-slate-200'
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 
