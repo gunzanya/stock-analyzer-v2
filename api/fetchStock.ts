@@ -520,8 +520,70 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-/** Fetch daily OHLCV bars for the last `days` calendar days (default 400 — ~1y trading). */
-async function fetchPriceHistory(
+// ---- Naver daily price history for Korean tickers -----------------------
+
+/** Fetch daily OHLCV from Naver's chart JSON API.
+ *  Returns newest-first PriceBar[], same contract as the Yahoo path.
+ *  Falls back to Yahoo if Naver fails. */
+async function fetchNaverPriceHistory(
+  ticker: string,
+  days = 400,
+): Promise<PriceBar[]> {
+  const code = ticker.replace(/\.(KS|KQ)$/i, '');
+  if (!/^\d{6}$/.test(code)) return fetchYahooPriceHistory(ticker, days);
+
+  const end = new Date();
+  const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const url =
+      `https://fchart.stock.naver.com/siseJson.nhn?symbol=${code}` +
+      `&requestType=1&startTime=${fmt(start)}&endTime=${fmt(end)}&timeframe=day`;
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': NAVER_UA, Accept: '*/*' },
+    });
+    if (!res.ok) throw new Error(`Naver chart HTTP ${res.status}`);
+    const text = await res.text();
+
+    // Response is JS array literal (not strict JSON): parse with eval-safe regex.
+    // Each row: ["20260521", 65000, 65500, 64200, 65300, 1234567, 48.5]
+    const rowRe = /\["(\d{8})",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)/g;
+    const bars: PriceBar[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = rowRe.exec(text)) != null) {
+      const dateStr = m[1];
+      const date = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
+      const open = Number(m[2]);
+      const high = Number(m[3]);
+      const low = Number(m[4]);
+      const close = Number(m[5]);
+      const volume = Number(m[6]);
+      if (!Number.isFinite(close) || close <= 0) continue;
+      bars.push({ date, open, high, low, close, volume });
+    }
+
+    if (bars.length < 50) {
+      throw new Error(`Naver returned only ${bars.length} bars for ${code}`);
+    }
+
+    // Naver returns oldest-first; reverse to newest-first.
+    bars.reverse();
+    return bars;
+  } catch {
+    // Naver failed — fall back to Yahoo.
+    return fetchYahooPriceHistory(ticker, days);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Fetch daily OHLCV bars from Yahoo Finance. */
+async function fetchYahooPriceHistory(
   ticker: string,
   days = 400,
 ): Promise<PriceBar[]> {
@@ -557,6 +619,19 @@ async function fetchPriceHistory(
   }
   // Yahoo returns oldest-first; we want newest-first for indicator math.
   return bars.reverse();
+}
+
+/** Fetch daily OHLCV bars for the last `days` calendar days (default 400).
+ *  Korean tickers (.KS/.KQ) use Naver chart API; all others use Yahoo. */
+async function fetchPriceHistory(
+  ticker: string,
+  days = 400,
+): Promise<PriceBar[]> {
+  const upper = ticker.trim().toUpperCase();
+  if (/\.(KS|KQ)$/i.test(upper)) {
+    return fetchNaverPriceHistory(upper, days);
+  }
+  return fetchYahooPriceHistory(upper, days);
 }
 
 /** Latest USD/KRW spot from Yahoo Finance, or null on failure. */
