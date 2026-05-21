@@ -173,6 +173,14 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
                   {isFavorite ? '⭐' : '☆'}
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setShowPortfolioModal(true)}
+                className="inline-flex items-center justify-center min-w-[32px] min-h-[32px] -my-1 rounded text-base text-slate-600 hover:text-indigo-400 transition-colors"
+                aria-label="포트폴리오 추가"
+              >
+                💼
+              </button>
               <span className="text-[10px] text-slate-500 truncate">
                 {f.exchange ?? ''}
               </span>
@@ -329,17 +337,6 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
       {/* Strategy */}
       <div className="px-5 pt-4">
         <StrategyCard strategy={displayStrategy} currency={displayCurrency} />
-      </div>
-
-      {/* Portfolio add button */}
-      <div className="px-5 pt-3">
-        <button
-          type="button"
-          onClick={() => setShowPortfolioModal(true)}
-          className="w-full min-h-[40px] px-4 py-2 rounded-lg border border-indigo-700/40 bg-indigo-950/20 text-sm font-medium text-indigo-300 hover:bg-indigo-900/30 active:bg-indigo-900/50 transition-colors"
-        >
-          💼 포트폴리오 추가
-        </button>
       </div>
 
       {showPortfolioModal && (
