@@ -22,10 +22,6 @@ function searchKr(query: string): KrStock[] {
   return results.slice(0, 8);
 }
 
-function hasKorean(s: string): boolean {
-  return /[가-힯ᄀ-ᇿ㄰-㆏]/.test(s);
-}
-
 export function TickerInput({ value, onChange, onSubmit, disabled }: Props) {
   const [suggestions, setSuggestions] = useState<KrStock[]>([]);
   const [activeIdx, setActiveIdx] = useState(-1);
@@ -40,15 +36,10 @@ export function TickerInput({ value, onChange, onSubmit, disabled }: Props) {
       setShowDrop(false);
       return;
     }
-    if (hasKorean(trimmed) || /^\d{3,6}$/.test(trimmed)) {
-      const hits = searchKr(trimmed);
-      setSuggestions(hits);
-      setShowDrop(hits.length > 0);
-      setActiveIdx(-1);
-    } else {
-      setSuggestions([]);
-      setShowDrop(false);
-    }
+    const hits = searchKr(trimmed);
+    setSuggestions(hits);
+    setShowDrop(hits.length > 0);
+    setActiveIdx(-1);
   }, []);
 
   useEffect(() => {
