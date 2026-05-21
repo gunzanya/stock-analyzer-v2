@@ -199,13 +199,15 @@ export interface OverallScoreResult {
 export interface StrategyResult {
   entry: number | null;        // suggested entry price
   stop: number | null;         // stop loss
-  target1: number | null;      // first profit target
-  target2: number | null;      // second target
+  target1: number | null;      // first profit target (ATR-based, reference only)
+  target2: number | null;      // second target (ATR-based, reference only)
   riskReward1: number | null;  // R:R for target1
   riskReward2: number | null;  // R:R for target2
   atr14: number | null;        // ATR used
   stopRule: string;            // human-readable
   rationale: string;           // short paragraph
+  exitStrategy: string;        // core exit rule (EMA20 trailing)
+  rrWarning: string | null;    // warning when R:R is poor
 }
 
 // ---- Type insights (per stock type) ----

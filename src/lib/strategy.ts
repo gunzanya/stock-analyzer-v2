@@ -42,15 +42,23 @@ export function computeStrategy(
   bars: PriceBar[],
   classification: ClassificationResult,
 ): StrategyResult {
+  const empty: StrategyResult = {
+    entry: null,
+    stop: null,
+    target1: null,
+    target2: null,
+    riskReward1: null,
+    riskReward2: null,
+    atr14: null,
+    stopRule: '',
+    rationale: '',
+    exitStrategy: '데이터 부족',
+    rrWarning: null,
+  };
+
   if (bars.length < 50) {
     return {
-      entry: null,
-      stop: null,
-      target1: null,
-      target2: null,
-      riskReward1: null,
-      riskReward2: null,
-      atr14: null,
+      ...empty,
       stopRule: '데이터 부족',
       rationale: '가격 시계열이 50 거래일 미만이라 전략을 계산할 수 없습니다.',
     };
@@ -63,13 +71,8 @@ export function computeStrategy(
 
   if (atrVal == null || atrVal <= 0) {
     return {
+      ...empty,
       entry: round(close),
-      stop: null,
-      target1: null,
-      target2: null,
-      riskReward1: null,
-      riskReward2: null,
-      atr14: null,
       stopRule: 'ATR 계산 불가',
       rationale: '변동성 지표가 계산되지 않아 손절·목표가를 산출하지 못했습니다.',
     };
@@ -77,48 +80,20 @@ export function computeStrategy(
 
   const entry = round(close);
   const stop = round(entry - params.stop * atrVal);
-  const atrT1 = round(entry + params.t1 * atrVal);
-  const atrT2 = round(entry + params.t2 * atrVal);
-
-  // 52-week high–aware targets
-  const h52 = high52w(bars);
-  let target1: number;
-  let target2: number;
-  let targetNote: string;
-
-  if (h52 == null) {
-    // No 52w data — pure ATR targets
-    target1 = atrT1;
-    target2 = atrT2;
-    targetNote = 'ATR 기반';
-  } else {
-    const distToHigh = h52 / entry; // e.g. 1.10 = 10% above entry
-    if (distToHigh <= 1.05) {
-      // Already near 52w high (within 5%): target the high, then Fib 127.2% extension
-      target1 = round(h52);
-      const range = h52 - (bars.length >= 252
-        ? Math.min(...bars.slice(0, 252).map((b) => b.low ?? b.close))
-        : entry);
-      target2 = round(h52 + range * 0.272);
-      targetNote = `고점 근접(${(distToHigh * 100 - 100).toFixed(1)}%) → 1차=52주고점, 2차=피보나치 127.2%`;
-    } else if (distToHigh >= 1.43) {
-      // Far from high (70% or below): pure ATR, plenty of room
-      target1 = atrT1;
-      target2 = atrT2;
-      targetNote = `고점 대비 ${((1 / distToHigh) * 100).toFixed(0)}% — ATR 기반 (저항 여유)`;
-    } else {
-      // Mid-range: 1st target = min(ATR target, 52w high), 2nd = high + Fib 50% extension
-      target1 = round(Math.min(atrT1, h52));
-      target2 = round(h52 + (h52 - entry) * 0.5);
-      targetNote = target1 < atrT1
-        ? `1차=min(ATR ${atrT1}, 52주고점 ${round(h52)}) → ${target1}`
-        : `1차=ATR ${atrT1} (고점 ${round(h52)} 미만)`;
-    }
-  }
+  const target1 = round(entry + params.t1 * atrVal);
+  const target2 = round(entry + params.t2 * atrVal);
 
   const risk = entry - stop;
   const riskReward1 = risk > 0 ? round((target1 - entry) / risk, 2) : null;
   const riskReward2 = risk > 0 ? round((target2 - entry) / risk, 2) : null;
+
+  // R:R warning
+  let rrWarning: string | null = null;
+  if (riskReward1 != null && riskReward1 < 1.0) {
+    rrWarning = `⚠️ R:R ${riskReward1} — 손익비 부족, 진입 비추`;
+  } else if (riskReward1 != null && riskReward1 < 1.5) {
+    rrWarning = `주의: R:R ${riskReward1} — 손익비 낮음`;
+  }
 
   // Stop rule narrative
   let stopRule = `진입 - ATR×${params.stop} = ${stop} (변동성 기반)`;
@@ -128,8 +103,12 @@ export function computeStrategy(
     stopRule += ` · 50일 SMA(${round(sma50)}) 하향 이탈 시 청산 검토`;
   }
 
+  const exitStrategy =
+    `1차 목표(${round(target1)}) 도달 시 50% 익절 → 나머지 EMA20 트레일링. ` +
+    `EMA20 종가 이탈 시 전량 청산.`;
+
   const rationale =
-    `${classification.primary} 유형, ${targetNote}. ` +
+    `${classification.primary} 유형, ATR×${params.t1}/${params.t2} 기반 참고 목표가. ` +
     `R:R ${riskReward1 ?? '—'} / ${riskReward2 ?? '—'} (1차/2차).`;
 
   return {
@@ -142,5 +121,7 @@ export function computeStrategy(
     atr14: round(atrVal),
     stopRule,
     rationale,
+    exitStrategy,
+    rrWarning,
   };
 }
