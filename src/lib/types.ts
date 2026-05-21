@@ -226,6 +226,18 @@ export interface RiskFactor {
   message: string;
 }
 
+// ---- Supply & demand (Korean stocks only — Naver 수급) ----
+
+export interface SupplyDemandData {
+  foreign5d: number;       // 외국인 5일 순매매 (억원)
+  foreign20d: number;      // 외국인 20일 순매매 (억원)
+  institution5d: number;   // 기관 5일 순매매 (억원)
+  institution20d: number;  // 기관 20일 순매매 (억원)
+  consecutiveForeignBuy: number;   // 외국인 연속 순매수 일수 (음수=연속 순매도)
+  consecutiveInstBuy: number;      // 기관 연속 순매수 일수
+  dailyRows: number;       // 사용된 일수
+}
+
 // Final analyzer output per ticker
 export interface AnalysisResult {
   fundamental: FundamentalData;
@@ -254,6 +266,7 @@ export interface AnalysisResult {
   timingDetail: TimingDetail | null;
   priceBars: PriceBar[]; // for chart (last ~130 days)
   usdKrwRate: number | null; // USD/KRW spot, null on fetch failure
+  supplyDemand: SupplyDemandData | null; // Korean stocks only
 }
 
 // ---- Timing precision analysis (5 sub-signals) ----

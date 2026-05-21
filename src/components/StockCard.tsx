@@ -18,6 +18,7 @@ import { TypeAuxCard } from './TypeAuxCard.js';
 import { RiskFactorsCard } from './RiskFactorsCard.js';
 import { TimingDetailCard } from './TimingDetailCard.js';
 import { AddToPortfolioModal } from './AddToPortfolioModal.js';
+import { SupplyDemandCard } from './SupplyDemandCard.js';
 
 const STOCK_TYPE_ORDER: StockType[] = [
   'FAST_GROWER',
@@ -331,6 +332,13 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
       {result.timingDetail && (
         <div className="px-5 pt-4">
           <TimingDetailCard detail={result.timingDetail} />
+        </div>
+      )}
+
+      {/* Supply & Demand (Korean stocks only) */}
+      {result.supplyDemand && (
+        <div className="px-5 pt-4">
+          <SupplyDemandCard data={result.supplyDemand} />
         </div>
       )}
 

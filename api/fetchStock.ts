@@ -6,6 +6,7 @@ import type {
   QuarterlyDatum,
   AnnualDatum,
   PriceBar,
+  SupplyDemandData,
 } from '../src/lib/types.js';
 
 // v3 requires instantiation
@@ -829,10 +830,136 @@ async function fetchScreenerPool(
   return filtered.map((h) => h.symbol);
 }
 
+// ---- Naver supply/demand (외국인·기관 수급) for Korean tickers ----
+
+interface FrgnRow {
+  date: string;
+  close: number;
+  instShares: number;   // 기관 순매매 (주)
+  frgnShares: number;   // 외국인 순매매 (주)
+}
+
+function parseSignedInt(s: string): number {
+  const cleaned = s.replace(/[,\s+]/g, '');
+  if (!/^-?\d+$/.test(cleaned)) return 0;
+  return parseInt(cleaned, 10);
+}
+
+async function fetchNaverSupplyDemand(
+  ticker: string,
+): Promise<SupplyDemandData | null> {
+  const code = ticker.replace(/\.(KS|KQ)$/i, '');
+  if (!/^\d{6}$/.test(code)) return null;
+
+  const rows: FrgnRow[] = [];
+  for (const page of [1, 2]) {
+    if (rows.length >= 20) break;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    try {
+      const res = await fetch(
+        `https://finance.naver.com/item/frgn.naver?code=${code}&page=${page}`,
+        {
+          signal: ctrl.signal,
+          headers: { 'User-Agent': NAVER_UA, Accept: 'text/html' },
+        },
+      );
+      if (!res.ok) break;
+      const buf = Buffer.from(await res.arrayBuffer());
+      const html = buf.toString('latin1')
+        .replace(/[\x80-\xff]/g, (ch) => {
+          const code = ch.charCodeAt(0);
+          return `&#${code};`;
+        });
+
+      const tableMatch = html.match(
+        /<table[^>]*class="type2"[^>]*>([\s\S]*?)<\/table>/g,
+      );
+      const target = tableMatch?.[1] ?? tableMatch?.[0];
+      if (!target) break;
+      parseTableRows(target, rows);
+    } catch {
+      break;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  if (rows.length < 3) return null;
+
+  const slice5 = rows.slice(0, Math.min(5, rows.length));
+  const slice20 = rows.slice(0, Math.min(20, rows.length));
+
+  const toEok = (shares: number, close: number) => (shares * close) / 1e8;
+
+  const foreign5d = slice5.reduce((s, r) => s + toEok(r.frgnShares, r.close), 0);
+  const foreign20d = slice20.reduce((s, r) => s + toEok(r.frgnShares, r.close), 0);
+  const institution5d = slice5.reduce((s, r) => s + toEok(r.instShares, r.close), 0);
+  const institution20d = slice20.reduce((s, r) => s + toEok(r.instShares, r.close), 0);
+
+  let consecutiveForeignBuy = 0;
+  if (rows[0].frgnShares > 0) {
+    for (const r of rows) {
+      if (r.frgnShares > 0) consecutiveForeignBuy++;
+      else break;
+    }
+  } else if (rows[0].frgnShares < 0) {
+    for (const r of rows) {
+      if (r.frgnShares < 0) consecutiveForeignBuy--;
+      else break;
+    }
+  }
+
+  let consecutiveInstBuy = 0;
+  if (rows[0].instShares > 0) {
+    for (const r of rows) {
+      if (r.instShares > 0) consecutiveInstBuy++;
+      else break;
+    }
+  } else if (rows[0].instShares < 0) {
+    for (const r of rows) {
+      if (r.instShares < 0) consecutiveInstBuy--;
+      else break;
+    }
+  }
+
+  return {
+    foreign5d: Math.round(foreign5d),
+    foreign20d: Math.round(foreign20d),
+    institution5d: Math.round(institution5d),
+    institution20d: Math.round(institution20d),
+    consecutiveForeignBuy,
+    consecutiveInstBuy,
+    dailyRows: rows.length,
+  };
+}
+
+function parseTableRows(tableHtml: string, out: FrgnRow[]): void {
+  const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
+  let m: RegExpExecArray | null;
+  while ((m = rowRe.exec(tableHtml)) != null) {
+    const tds: string[] = [];
+    const tdRe = /<td[^>]*>([\s\S]*?)<\/td>/g;
+    let td: RegExpExecArray | null;
+    while ((td = tdRe.exec(m[1])) != null) {
+      tds.push(td[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim());
+    }
+    if (tds.length < 7) continue;
+    const dateStr = tds[0].trim();
+    if (!/^\d{4}\.\d{2}\.\d{2}$/.test(dateStr)) continue;
+    const close = parseSignedInt(tds[1]);
+    if (close <= 0) continue;
+    const instShares = parseSignedInt(tds[5]);
+    const frgnShares = parseSignedInt(tds[6]);
+    out.push({ date: dateStr, close, instShares, frgnShares });
+  }
+}
+
 export {
   fetchFundamental,
   fetchPriceHistory,
   fetchUsdKrwRate,
   fetchScreenerPool,
   fetchNaverData,
+  fetchNaverSupplyDemand,
 };

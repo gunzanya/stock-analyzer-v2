@@ -3,7 +3,7 @@
 //
 // Gains and deductions are recorded with reasons for the UI.
 
-import type { TimingScoreResult, PriceBar, StockType } from './types.js';
+import type { TimingScoreResult, PriceBar, StockType, SupplyDemandData } from './types.js';
 import {
   adx as adxOf,
   atrTrend as atrTrendOf,
@@ -38,10 +38,11 @@ export interface TimingScoreInputs {
    *  things for cyclicals vs. fast growers). Optional — falls back to
    *  generic treatment when absent. */
   primaryType?: StockType | null;
+  supplyDemand?: SupplyDemandData | null;
 }
 
 export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
-  const { stockBars, benchmarkBars, absoluteMode, primaryType } = inputs;
+  const { stockBars, benchmarkBars, absoluteMode, primaryType, supplyDemand } = inputs;
   const gains: { reason: string; delta: number }[] = [];
   const deductions: { reason: string; delta: number }[] = [];
 
@@ -413,6 +414,38 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
       gains.push({ reason: `ATR 압축 (${atrT.changeRatio.toFixed(2)}x) → +3 (에너지 응축)`, delta: 3 });
     } else if (atrT.signal === 'expanding' && r30 != null && r30 < -0.05) {
       deductions.push({ reason: `ATR 확대 + 하락 → -3 (하방 변동성)`, delta: -3 });
+    }
+  }
+
+  // ---------- 수급 (외인·기관, Korean only) ----------
+  if (supplyDemand) {
+    const sd = supplyDemand;
+    const bothBuy5 = sd.consecutiveForeignBuy >= 5 && sd.consecutiveInstBuy >= 5;
+    const bothSell5 = sd.consecutiveForeignBuy <= -5 && sd.consecutiveInstBuy <= -5;
+
+    if (bothBuy5) {
+      gains.push({
+        reason: `외인+기관 동시 순매수 ${Math.min(sd.consecutiveForeignBuy, sd.consecutiveInstBuy)}일 연속 → +7 (스마트머니 유입)`,
+        delta: 7,
+      });
+    } else if (bothSell5) {
+      deductions.push({
+        reason: `외인+기관 동시 순매도 ${Math.max(sd.consecutiveForeignBuy, sd.consecutiveInstBuy)}일 연속 → -7 (스마트머니 이탈)`,
+        delta: -7,
+      });
+    } else {
+      if (sd.consecutiveForeignBuy >= 3 || sd.foreign5d > 0) {
+        gains.push({
+          reason: `외국인 순매수 (5일 ${sd.foreign5d > 0 ? '+' : ''}${sd.foreign5d}억) → +3`,
+          delta: 3,
+        });
+      }
+      if (sd.consecutiveInstBuy >= 3 || sd.institution5d > 0) {
+        gains.push({
+          reason: `기관 순매수 (5일 ${sd.institution5d > 0 ? '+' : ''}${sd.institution5d}억) → +3`,
+          delta: 3,
+        });
+      }
     }
   }
 
