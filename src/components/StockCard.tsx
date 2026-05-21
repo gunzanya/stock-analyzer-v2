@@ -348,7 +348,7 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
           targetPrice={strategy.target1}
           scores={{
             fundamental: fundamentalScore.score,
-            timing: result.timingScore.score,
+            timing: Math.round((result.timingScore.score / 90) * 100),
             overall: overallScore.score,
           }}
           onClose={() => setShowPortfolioModal(false)}
