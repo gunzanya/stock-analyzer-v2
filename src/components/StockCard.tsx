@@ -351,6 +351,7 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
             timing: Math.round((result.timingScore.score / 90) * 100),
             overall: overallScore.score,
           }}
+          fxRate={fxRate}
           onClose={() => setShowPortfolioModal(false)}
           onAdded={() => setShowPortfolioModal(false)}
         />

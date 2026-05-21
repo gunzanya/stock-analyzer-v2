@@ -11,14 +11,36 @@ import { fetchAnalysis } from '../lib/api.js';
 
 type PriceMap = Record<string, number | null>;
 
+const FX_FALLBACK = 1380;
+
+function isKR(ticker: string): boolean {
+  return /\.(KS|KQ)$/i.test(ticker);
+}
+
 function fmtN(v: number, digits = 2): string {
   return v.toLocaleString(undefined, { maximumFractionDigits: digits });
+}
+
+function fmtCcy(v: number, kr: boolean): string {
+  return kr
+    ? `₩${Math.round(v).toLocaleString()}`
+    : `$${fmtN(v, 0)}`;
+}
+
+function fmtAlt(v: number, kr: boolean, rate: number): string {
+  if (kr) return `≈$${Math.round(v / rate).toLocaleString()}`;
+  return `≈₩${Math.round(v * rate).toLocaleString()}`;
+}
+
+function toKRW(v: number, kr: boolean, rate: number): number {
+  return kr ? v : v * rate;
 }
 
 export function PortfolioPanel() {
   const [positions, setPositions] = useState<PortfolioPosition[]>([]);
   const [closed, setClosed] = useState<ClosedPosition[]>([]);
   const [prices, setPrices] = useState<PriceMap>({});
+  const [fxRate, setFxRate] = useState(FX_FALLBACK);
   const [loading, setLoading] = useState(false);
   const [closeModal, setCloseModal] = useState<{ id: string; pct: number } | null>(null);
   const [closePrice, setClosePrice] = useState('');
@@ -35,17 +57,20 @@ export function PortfolioPanel() {
     if (positions.length === 0) return;
     setLoading(true);
     const map: PriceMap = {};
+    let gotRate: number | null = null;
     await Promise.all(
       positions.map(async (p) => {
         try {
           const r = await fetchAnalysis(p.ticker);
           map[p.ticker] = r.fundamental.price;
+          if (gotRate == null && r.usdKrwRate != null) gotRate = r.usdKrwRate;
         } catch {
           map[p.ticker] = null;
         }
       }),
     );
     setPrices(map);
+    if (gotRate != null) setFxRate(gotRate);
     setLoading(false);
   }, [positions]);
 
@@ -72,18 +97,20 @@ export function PortfolioPanel() {
     return Math.max(1, Math.round((today.getTime() - new Date(entryDate).getTime()) / 86_400_000));
   }
 
-  // Portfolio totals
-  let totalInvested = 0;
-  let totalValue = 0;
+  // Portfolio totals (normalize to KRW for cross-currency aggregation)
+  let totalInvestedKRW = 0;
+  let totalValueKRW = 0;
   let totalDays = 0;
   for (const p of positions) {
     const cur = prices[p.ticker];
-    totalInvested += p.entryPrice * p.quantity;
-    totalValue += (cur ?? p.entryPrice) * p.quantity;
+    const kr = isKR(p.ticker);
+    totalInvestedKRW += toKRW(p.entryPrice * p.quantity, kr, fxRate);
+    totalValueKRW += toKRW((cur ?? p.entryPrice) * p.quantity, kr, fxRate);
     totalDays += holdingDays(p.entryDate);
   }
-  const totalReturn = totalInvested > 0 ? (totalValue - totalInvested) / totalInvested : 0;
+  const totalReturn = totalInvestedKRW > 0 ? (totalValueKRW - totalInvestedKRW) / totalInvestedKRW : 0;
   const avgDays = positions.length > 0 ? Math.round(totalDays / positions.length) : 0;
+  const totalPnlKRW = totalValueKRW - totalInvestedKRW;
 
   return (
     <div className="space-y-4">
@@ -111,19 +138,24 @@ export function PortfolioPanel() {
             <>
               {/* Summary header */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <SummaryBox label="총 투자금" value={fmtN(totalInvested, 0)} />
+                <SummaryBox
+                  label="총 투자금"
+                  value={`₩${Math.round(totalInvestedKRW).toLocaleString()}`}
+                  sub={`≈$${Math.round(totalInvestedKRW / fxRate).toLocaleString()}`}
+                />
                 <SummaryBox
                   label="총 평가금"
-                  value={fmtN(totalValue, 0)}
+                  value={`₩${Math.round(totalValueKRW).toLocaleString()}`}
                   sub={`${totalReturn >= 0 ? '+' : ''}${(totalReturn * 100).toFixed(2)}%`}
                   positive={totalReturn >= 0}
                 />
                 <SummaryBox
                   label="총 손익"
-                  value={`${totalValue - totalInvested >= 0 ? '+' : ''}${fmtN(totalValue - totalInvested, 0)}`}
-                  positive={totalValue - totalInvested >= 0}
+                  value={`${totalPnlKRW >= 0 ? '+' : ''}₩${Math.round(Math.abs(totalPnlKRW)).toLocaleString()}`}
+                  sub={`${totalPnlKRW >= 0 ? '+' : ''}$${Math.round(Math.abs(totalPnlKRW) / fxRate).toLocaleString()}`}
+                  positive={totalPnlKRW >= 0}
                 />
-                <SummaryBox label="보유 종목" value={`${positions.length}개`} sub={`평균 ${avgDays}일`} />
+                <SummaryBox label="보유 종목" value={`${positions.length}개`} sub={`평균 ${avgDays}일 · 환율 ${Math.round(fxRate).toLocaleString()}`} />
               </div>
 
               {loading && (
@@ -137,6 +169,7 @@ export function PortfolioPanel() {
                     pos={p}
                     currentPrice={prices[p.ticker] ?? null}
                     days={holdingDays(p.entryDate)}
+                    fxRate={fxRate}
                     onPartialClose={(pct) => openCloseModal(p.id, pct)}
                     onDelete={() => { removePosition(p.id); reload(); }}
                   />
@@ -166,7 +199,7 @@ export function PortfolioPanel() {
                       }`}>{c.strategyTag}</span>
                     </div>
                     <div className="text-[11px] text-slate-500 mt-0.5">
-                      {c.closedQuantity}주 · {c.entryDate} → {c.closeDate} · {c.holdingDays}일 · {fmtN(c.entryPrice)} → {fmtN(c.closePrice)}
+                      {c.closedQuantity}주 · {c.entryDate} → {c.closeDate} · {c.holdingDays}일 · {fmtCcy(c.entryPrice, isKR(c.ticker))} → {fmtCcy(c.closePrice, isKR(c.ticker))}
                     </div>
                   </div>
                   <span className={`text-sm font-bold tabular-nums ${c.returnPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -239,15 +272,18 @@ function PositionCard({
   pos,
   currentPrice,
   days,
+  fxRate,
   onPartialClose,
   onDelete,
 }: {
   pos: PortfolioPosition;
   currentPrice: number | null;
   days: number;
+  fxRate: number;
   onPartialClose: (pct: number) => void;
   onDelete: () => void;
 }) {
+  const kr = isKR(pos.ticker);
   const cur = currentPrice;
   const ret = cur != null ? (cur - pos.entryPrice) / pos.entryPrice : null;
   const invested = pos.entryPrice * pos.quantity;
@@ -287,15 +323,16 @@ function PositionCard({
 
       {/* Row 2: quantity & investment */}
       <div className="text-xs text-slate-400">
-        {pos.quantity}주 × {fmtN(pos.entryPrice)} = <span className="text-slate-200 font-medium">{fmtN(invested, 0)}</span>
+        {pos.quantity}주 × {fmtCcy(pos.entryPrice, kr)} = <span className="text-slate-200 font-medium">{fmtCcy(invested, kr)}</span>
+        <span className="text-slate-600 ml-1">({fmtAlt(invested, kr, fxRate)})</span>
       </div>
 
       {/* Row 3: current price & return */}
       <div className="flex items-baseline justify-between gap-3">
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-baseline gap-2 flex-wrap">
           <span className="text-xs text-slate-500">현재가</span>
           <span className="text-lg font-bold tabular-nums text-slate-100">
-            {cur != null ? fmtN(cur) : '—'}
+            {cur != null ? fmtCcy(cur, kr) : '—'}
           </span>
           {ret != null && (
             <span className={`text-sm font-bold tabular-nums ${ret >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -304,9 +341,14 @@ function PositionCard({
           )}
         </div>
         {pnl != null && (
-          <span className={`text-sm font-bold tabular-nums ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-            {pnl >= 0 ? '+' : ''}{fmtN(pnl, 0)}
-          </span>
+          <div className="text-right">
+            <span className={`text-sm font-bold tabular-nums ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {pnl >= 0 ? '+' : ''}{fmtCcy(Math.abs(pnl), kr)}
+            </span>
+            <span className={`block text-[10px] tabular-nums ${pnl >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              {fmtAlt(Math.abs(pnl), kr, fxRate)}
+            </span>
+          </div>
         )}
       </div>
 

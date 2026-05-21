@@ -2,6 +2,23 @@ import { useState } from 'react';
 import type { StrategyTag } from '../lib/portfolio.js';
 import { addPosition, genId } from '../lib/portfolio.js';
 
+const FX_FALLBACK = 1380;
+
+function isKR(ticker: string): boolean {
+  return /\.(KS|KQ)$/i.test(ticker);
+}
+
+function fmtCurrency(v: number, kr: boolean): string {
+  return kr
+    ? `₩${Math.round(v).toLocaleString()}`
+    : `$${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+}
+
+function fmtConvert(v: number, kr: boolean, rate: number): string {
+  if (kr) return `≈$${Math.round(v / rate).toLocaleString()}`;
+  return `≈₩${Math.round(v * rate).toLocaleString()}`;
+}
+
 interface Props {
   ticker: string;
   name: string;
@@ -9,6 +26,7 @@ interface Props {
   stopPrice: number | null;
   targetPrice: number | null;
   scores: { fundamental: number; timing: number; overall: number };
+  fxRate?: number | null;
   onClose: () => void;
   onAdded: () => void;
 }
@@ -20,9 +38,12 @@ export function AddToPortfolioModal({
   stopPrice,
   targetPrice,
   scores,
+  fxRate: fxRateProp,
   onClose,
   onAdded,
 }: Props) {
+  const rate = fxRateProp ?? FX_FALLBACK;
+  const kr = isKR(ticker);
   const [inputMode, setInputMode] = useState<'qty' | 'amount'>('qty');
   const [qty, setQty] = useState('100');
   const [amount, setAmount] = useState('');
@@ -111,7 +132,8 @@ export function AddToPortfolioModal({
           {/* Computed summary */}
           {computedTotal != null && computedQty > 0 && (
             <div className="px-3 py-2 rounded-lg bg-indigo-950/30 border border-indigo-800/30 text-sm text-indigo-200 tabular-nums">
-              {computedQty}주 × {entryPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })} = <span className="font-bold">{computedTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+              {computedQty}주 × {fmtCurrency(entryPrice, kr)} = <span className="font-bold">{fmtCurrency(computedTotal, kr)}</span>
+              <span className="text-indigo-400 ml-1">({fmtConvert(computedTotal, kr, rate)})</span>
             </div>
           )}
 
@@ -191,22 +213,6 @@ function Field({
         className="w-full min-h-[40px] px-3 py-2 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
       />
     </div>
-  );
-}
-
-function ToggleBtn({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`min-h-[28px] px-3 py-1 rounded text-xs font-medium transition-colors ${
-        active
-          ? 'bg-indigo-600 text-white'
-          : 'bg-[#0a0f1a] border border-[#1e293b] text-slate-400 hover:text-slate-200'
-      }`}
-    >
-      {label}
-    </button>
   );
 }
 
