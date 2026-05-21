@@ -6,8 +6,6 @@ import type {
   StrategyResult,
 } from '../lib/types.js';
 import { STOCK_TYPE_LABELS } from '../lib/types.js';
-import { computeFundamental } from '../lib/totalScore.js';
-import { computeOverall } from '../lib/overallScore.js';
 import { computeStrategy } from '../lib/strategy.js';
 import { getTypeInsight } from '../lib/typeInsights.js';
 import { TotalScoreCard } from './TotalScoreCard.js';
@@ -114,17 +112,17 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
       result.priceBars.length >= 50
         ? computeStrategy(result.priceBars, syntheticCls)
         : result.strategy;
-    const fund = computeFundamental(result.canslim, syntheticCls);
+    // Fundamental score is type-independent (universal weights).
+    // Reuse the server-computed score — no recalculation needed.
     return {
-      fundamentalScore: fund,
-      overallScore: computeOverall(fund, result.timingScore),
+      fundamentalScore: result.fundamentalScore,
+      overallScore: result.overallScore,
       typeInsight: getTypeInsight(override!),
       strategy: overrideStrategy,
     };
   }, [
     isOverride,
     override,
-    result.canslim,
     result.priceBars,
     result.fundamentalScore,
     result.overallScore,
