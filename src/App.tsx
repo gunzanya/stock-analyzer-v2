@@ -27,30 +27,67 @@ function parseTickers(input: string): string[] {
   );
 }
 
+function readURL(): { tab: Tab; ticker: string | null } {
+  const params = new URLSearchParams(window.location.search);
+  const t = params.get('tab');
+  const tab: Tab = t === 'screener' ? 'screener' : t === 'portfolio' ? 'portfolio' : 'analyze';
+  const ticker = params.get('ticker');
+  return { tab, ticker: ticker ? ticker.toUpperCase() : null };
+}
+
+function pushURL(tab: Tab, ticker?: string | null) {
+  const params = new URLSearchParams();
+  params.set('tab', tab);
+  if (tab === 'analyze' && ticker) params.set('ticker', ticker);
+  const url = '?' + params.toString();
+  if (window.location.search !== url) {
+    window.history.pushState({ tab, ticker: ticker ?? null }, '', url);
+  }
+}
+
 function App() {
-  const [tab, setTab] = useState<Tab>('analyze');
-  const [input, setInput] = useState('');
+  const initial = readURL();
+  const [tab, setTab] = useState<Tab>(initial.tab);
+  const [input, setInput] = useState(initial.ticker ?? '');
   const [cards, setCards] = useState<CardState[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
+  const [popNav, setPopNav] = useState(0);
 
-  // Load favorites on mount
   useEffect(() => {
     setFavorites(loadFavorites());
   }, []);
 
-  // Auto-analyze when arriving with ?ticker=XYZ (e.g. middle-click from
-  // the screener opens a new tab whose URL has this param). Runs once on
-  // mount, then strips the param so refresh / tab switches don't re-fire.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const ticker = params.get('ticker');
-    if (!ticker) return;
-    const upper = ticker.toUpperCase();
-    setTab('analyze');
-    setInput(upper);
-    void runAnalysis(upper);
-    window.history.replaceState({}, '', window.location.pathname);
+    const { tab: urlTab, ticker } = readURL();
+    pushURL(urlTab, ticker);
+    if (ticker && urlTab === 'analyze') {
+      void runAnalysis(ticker);
+    }
   }, []);
+
+  useEffect(() => {
+    function onPop() {
+      const { tab: urlTab, ticker } = readURL();
+      setTab(urlTab);
+      if (urlTab === 'analyze' && ticker) {
+        setInput(ticker);
+        setPopNav((n) => n + 1);
+      }
+    }
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  useEffect(() => {
+    if (popNav === 0) return;
+    const { ticker } = readURL();
+    if (ticker) void runAnalysis(ticker);
+  }, [popNav]);
+
+  function changeTab(next: Tab) {
+    setTab(next);
+    pushURL(next);
+  }
 
   function toggleFavorite(ticker: string) {
     const upper = ticker.toUpperCase();
@@ -66,6 +103,7 @@ function App() {
   async function runAnalysis(rawInput: string) {
     const tickers = parseTickers(rawInput);
     if (tickers.length === 0) return;
+    pushURL('analyze', tickers.join(','));
     setCards(tickers.map((t) => ({ ticker: t, status: 'loading' })));
     await Promise.all(
       tickers.map(async (t) => {
@@ -103,13 +141,13 @@ function App() {
           </div>
 
           <div className="flex gap-1 mb-3 border-b border-[#1e293b]">
-            <TabButton active={tab === 'analyze'} onClick={() => setTab('analyze')}>
+            <TabButton active={tab === 'analyze'} onClick={() => changeTab('analyze')}>
               📊 개별 분석
             </TabButton>
-            <TabButton active={tab === 'screener'} onClick={() => setTab('screener')}>
+            <TabButton active={tab === 'screener'} onClick={() => changeTab('screener')}>
               🎲 스크리너
             </TabButton>
-            <TabButton active={tab === 'portfolio'} onClick={() => setTab('portfolio')}>
+            <TabButton active={tab === 'portfolio'} onClick={() => changeTab('portfolio')}>
               💼 포트폴리오
             </TabButton>
           </div>
@@ -171,7 +209,7 @@ function App() {
             favorites={favorites}
             onToggleFavorite={toggleFavorite}
             onPickTicker={(t) => {
-              setTab('analyze');
+              changeTab('analyze');
               setInput(t);
               void runAnalysis(t);
             }}
