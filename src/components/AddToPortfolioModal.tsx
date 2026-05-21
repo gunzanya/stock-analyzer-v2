@@ -84,32 +84,27 @@ export function AddToPortfolioModal({
 
           {/* Quantity / Amount toggle */}
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <ToggleBtn label="수량" active={inputMode === 'qty'} onClick={() => setInputMode('qty')} />
-              <ToggleBtn label="금액" active={inputMode === 'amount'} onClick={() => setInputMode('amount')} />
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
+                {inputMode === 'qty' ? '수량' : '금액'}
+              </label>
+              <div className="flex rounded-md overflow-hidden border border-[#1e293b]">
+                <button type="button" onClick={() => setInputMode('qty')}
+                  className={`px-2.5 py-1 text-[10px] font-bold transition-colors ${inputMode === 'qty' ? 'bg-indigo-600 text-white' : 'bg-[#0a0f1a] text-slate-500 hover:text-slate-300'}`}
+                >수량</button>
+                <button type="button" onClick={() => setInputMode('amount')}
+                  className={`px-2.5 py-1 text-[10px] font-bold transition-colors ${inputMode === 'amount' ? 'bg-indigo-600 text-white' : 'bg-[#0a0f1a] text-slate-500 hover:text-slate-300'}`}
+                >금액</button>
+              </div>
             </div>
             {inputMode === 'qty' ? (
-              <input
-                type="number"
-                step="1"
-                min="1"
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-                required
-                placeholder="주 수"
-                className="w-full min-h-[40px] px-3 py-2 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              <input type="number" step="1" min="1" value={qty}
+                onChange={(e) => setQty(e.target.value)} required placeholder="주 수"
+                className="w-full min-h-[40px] px-3 py-2 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             ) : (
-              <input
-                type="number"
-                step="any"
-                min="0"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                required
-                placeholder="투자 금액"
-                className="w-full min-h-[40px] px-3 py-2 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              <input type="number" step="any" min="0" value={amount}
+                onChange={(e) => setAmount(e.target.value)} required placeholder="투자 금액"
+                className="w-full min-h-[40px] px-3 py-2 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             )}
           </div>
 
