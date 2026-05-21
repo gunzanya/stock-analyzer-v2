@@ -26,6 +26,18 @@ function round(v: number, digits = 2): number {
   return Math.round(v * p) / p;
 }
 
+/** 52-week (252 trading days) high from newest-first bars. */
+function high52w(bars: PriceBar[]): number | null {
+  const window = bars.slice(0, Math.min(252, bars.length));
+  if (window.length < 20) return null;
+  let max = -Infinity;
+  for (const b of window) {
+    const h = b.high ?? b.close;
+    if (h > max) max = h;
+  }
+  return Number.isFinite(max) ? max : null;
+}
+
 export function computeStrategy(
   bars: PriceBar[],
   classification: ClassificationResult,
@@ -63,12 +75,46 @@ export function computeStrategy(
     };
   }
 
-  // Entry: current close. (Could refine with limit-near-EMA20 for pullbacks,
-  // but we expose pricing in the UI so traders can adjust.)
   const entry = round(close);
   const stop = round(entry - params.stop * atrVal);
-  const target1 = round(entry + params.t1 * atrVal);
-  const target2 = round(entry + params.t2 * atrVal);
+  const atrT1 = round(entry + params.t1 * atrVal);
+  const atrT2 = round(entry + params.t2 * atrVal);
+
+  // 52-week high–aware targets
+  const h52 = high52w(bars);
+  let target1: number;
+  let target2: number;
+  let targetNote: string;
+
+  if (h52 == null) {
+    // No 52w data — pure ATR targets
+    target1 = atrT1;
+    target2 = atrT2;
+    targetNote = 'ATR 기반';
+  } else {
+    const distToHigh = h52 / entry; // e.g. 1.10 = 10% above entry
+    if (distToHigh <= 1.05) {
+      // Already near 52w high (within 5%): target the high, then Fib 127.2% extension
+      target1 = round(h52);
+      const range = h52 - (bars.length >= 252
+        ? Math.min(...bars.slice(0, 252).map((b) => b.low ?? b.close))
+        : entry);
+      target2 = round(h52 + range * 0.272);
+      targetNote = `고점 근접(${(distToHigh * 100 - 100).toFixed(1)}%) → 1차=52주고점, 2차=피보나치 127.2%`;
+    } else if (distToHigh >= 1.43) {
+      // Far from high (70% or below): pure ATR, plenty of room
+      target1 = atrT1;
+      target2 = atrT2;
+      targetNote = `고점 대비 ${((1 / distToHigh) * 100).toFixed(0)}% — ATR 기반 (저항 여유)`;
+    } else {
+      // Mid-range: 1st target = min(ATR target, 52w high), 2nd = high + Fib 50% extension
+      target1 = round(Math.min(atrT1, h52));
+      target2 = round(h52 + (h52 - entry) * 0.5);
+      targetNote = target1 < atrT1
+        ? `1차=min(ATR ${atrT1}, 52주고점 ${round(h52)}) → ${target1}`
+        : `1차=ATR ${atrT1} (고점 ${round(h52)} 미만)`;
+    }
+  }
 
   const risk = entry - stop;
   const riskReward1 = risk > 0 ? round((target1 - entry) / risk, 2) : null;
@@ -83,8 +129,8 @@ export function computeStrategy(
   }
 
   const rationale =
-    `${classification.primary} 유형 기준 ATR×${params.stop}/${params.t1}/${params.t2}로 설정. ` +
-    `R:R ${riskReward1 ?? '—'} / ${riskReward2 ?? '—'} (1차/2차 목표).`;
+    `${classification.primary} 유형, ${targetNote}. ` +
+    `R:R ${riskReward1 ?? '—'} / ${riskReward2 ?? '—'} (1차/2차).`;
 
   return {
     entry,
