@@ -347,7 +347,20 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
 
   const gainSum = gains.reduce((a, g) => a + g.delta, 0);
   const deductionSum = deductions.reduce((a, d) => a + d.delta, 0);
-  const score = Math.max(0, Math.min(MAX_SCORE, gainSum + deductionSum));
+  let score = Math.max(0, Math.min(MAX_SCORE, gainSum + deductionSum));
+
+  // ADX-based soft cap: without a confirmed trend, timing can't score very high.
+  const adxCap =
+    adxVal != null && adxVal < 15 ? 60
+      : adxVal != null && adxVal < 20 ? 75
+      : null;
+  if (adxCap != null && score > adxCap) {
+    deductions.push({
+      reason: `ADX ${adxVal!.toFixed(0)} → 타이밍 캡 ${adxCap} 적용 (${score} → ${adxCap})`,
+      delta: adxCap - score,
+    });
+    score = adxCap;
+  }
 
   let level: TimingScoreResult['level'];
   if (score >= 70) level = 'STRONG';
