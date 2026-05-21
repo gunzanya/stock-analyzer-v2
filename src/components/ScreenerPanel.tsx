@@ -5,7 +5,7 @@ import { LEVEL_KO, SCORE_TEXT, scoreLevel } from './scoreColors.js';
 
 type Row = ScreenerSummary;
 type Status = 'idle' | 'running' | 'done' | 'error';
-type PoolFilter = 'all' | 'large_cap' | 'small_mid' | 'tech' | 'breakout';
+type PoolFilter = 'all' | 'large_cap' | 'small_mid' | 'tech' | 'breakout' | 'kr';
 type SortKey = 'overall' | 'fundamental' | 'timing';
 type SortDir = 'asc' | 'desc';
 
@@ -15,6 +15,7 @@ const FILTER_LABELS: Record<PoolFilter, string> = {
   small_mid: '중소형주',
   tech: '테크',
   breakout: '🔍 돌파 대기',
+  kr: '🇰🇷 한국',
 };
 
 // Same grid template for header + rows so columns line up.

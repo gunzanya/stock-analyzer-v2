@@ -3,6 +3,7 @@ import { analyzeOne } from './analyze.js';
 import { fetchScreenerPool, type ScreenerFilter } from './fetchStock.js';
 import { SCREENER_POOL } from '../src/lib/screenerPool.js';
 import { SP500 } from '../src/lib/sp500.js';
+import { KR_STOCKS } from '../src/lib/krStocks.js';
 import type { AnalysisResult } from '../src/lib/types.js';
 import type { ScreenerSummary } from '../src/lib/screenerTypes.js';
 
@@ -11,7 +12,9 @@ const DEFAULT_N = 20;
 // Stability over speed — n=20/50 fits comfortably in the 60s Vercel budget;
 // n=100 may exceed it under heavy load and end as a partial stream.
 const CONCURRENCY = 3;
+const CONCURRENCY_KR = 2;
 const INTER_TICKER_DELAY_MS = 500;
+const INTER_TICKER_DELAY_KR_MS = 800;
 const RETRY_429_DELAY_MS = 3000;
 
 function sleep(ms: number): Promise<void> {
@@ -31,6 +34,7 @@ const FILTERS: ReadonlySet<ScreenerFilter> = new Set([
   'small_mid',
   'tech',
   'breakout',
+  'kr',
 ]);
 
 // Whether to augment the Yahoo dynamic pool with the static S&P 500 list.
@@ -42,6 +46,7 @@ const MERGE_SP500: Record<ScreenerFilter, boolean> = {
   large_cap: true,
   small_mid: false,
   tech: false,
+  kr: false,
 };
 
 function isFilter(v: string | undefined): v is ScreenerFilter {
@@ -64,6 +69,9 @@ function sampleFrom(pool: readonly string[], n: number): string[] {
  *  curated SCREENER_POOL if Yahoo is unreachable so the screener still
  *  works offline. */
 async function buildPool(filter: ScreenerFilter): Promise<string[]> {
+  if (filter === 'kr') {
+    return [...KR_STOCKS];
+  }
   const opts =
     filter === 'large_cap'
       ? { minMarketCap: 10e9 }
@@ -109,12 +117,17 @@ function toSummary(ticker: string, r: AnalysisResult): ScreenerSummary {
 
 /** 돌파 대기 — fundamentals strong, timing not yet hot, ADX building, no
  *  obvious distribution or sector blowup. The trade is to enter when ADX
- *  crosses 25 (trend confirms). */
+ *  crosses 25 (trend confirms).
+ *  Korean tickers use relaxed thresholds (higher volatility market). */
 function isBreakoutReady(r: AnalysisResult): boolean {
   const timingPct = (r.timingScore.score / 90) * 100;
   const adx = r.indicators.adx;
-  if (r.fundamentalScore.score < 70) return false;
-  if (timingPct < 25 || timingPct > 55) return false;
+  const isKR = /\.(KS|KQ)$/i.test(r.fundamental.ticker);
+  const fundThreshold = isKR ? 65 : 70;
+  const timingMin = isKR ? 20 : 25;
+  const timingMax = isKR ? 60 : 55;
+  if (r.fundamentalScore.score < fundThreshold) return false;
+  if (timingPct < timingMin || timingPct > timingMax) return false;
   if (adx == null || adx < 15 || adx > 25) return false;
   if (r.indicators.obvDivergence === true) return false;
   if (r.safetyGuard.triggered) return false;
@@ -135,7 +148,11 @@ export interface ScreenerWriter {
 export async function runScreener(
   tickers: string[],
   writer: ScreenerWriter,
+  opts?: { concurrency?: number; interTickerDelay?: number },
 ): Promise<void> {
+  const concurrency = opts?.concurrency ?? CONCURRENCY;
+  const interDelay = opts?.interTickerDelay ?? INTER_TICKER_DELAY_MS;
+
   writer.write(sseFrame('start', { total: tickers.length, tickers }));
 
   let nextIdx = 0;
@@ -196,12 +213,12 @@ export async function runScreener(
       // Throttle: pause between analyses inside the same worker to ease
       // Yahoo's rate-limit. Skip on the very last ticker.
       if (nextIdx < tickers.length) {
-        await sleep(INTER_TICKER_DELAY_MS);
+        await sleep(interDelay);
       }
     }
   };
 
-  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  await Promise.all(Array.from({ length: concurrency }, worker));
   writer.write(sseFrame('done', { total: tickers.length }));
   writer.end();
 }
@@ -264,8 +281,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     },
   };
 
+  const screenerOpts = filter === 'kr'
+    ? { concurrency: CONCURRENCY_KR, interTickerDelay: INTER_TICKER_DELAY_KR_MS }
+    : undefined;
+
   try {
-    await runScreener(tickers, writer);
+    await runScreener(tickers, writer, screenerOpts);
   } catch (err) {
     res.write(sseFrame('error', { message: (err as Error).message }));
     res.end();

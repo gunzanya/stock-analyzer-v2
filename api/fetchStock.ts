@@ -592,7 +592,7 @@ async function fetchUsdKrwRate(): Promise<number | null> {
 
 // ---- Dynamic pool builder (Yahoo screener) -----------------------------
 
-export type ScreenerFilter = 'all' | 'large_cap' | 'small_mid' | 'tech' | 'breakout';
+export type ScreenerFilter = 'all' | 'large_cap' | 'small_mid' | 'tech' | 'breakout' | 'kr';
 
 interface ScreenerHit {
   symbol: string;
@@ -645,6 +645,7 @@ const SCR_IDS: Record<ScreenerFilter, ScrId[]> = {
   large_cap: ['undervalued_large_caps', 'portfolio_anchors', 'most_actives'],
   small_mid: ['small_cap_gainers', 'aggressive_small_caps', 'undervalued_growth_stocks'],
   tech: ['growth_technology_stocks'],
+  kr: [],
 };
 
 /** Pull tickers from Yahoo's predefined screeners, merged + deduped.
