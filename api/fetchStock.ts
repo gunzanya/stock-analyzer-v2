@@ -621,17 +621,56 @@ async function fetchYahooPriceHistory(
   return bars.reverse();
 }
 
+/** Strip an in-progress intraday bar from the front of a newest-first
+ *  bar array. The heuristic: if the latest bar's volume is below 50% of
+ *  the trailing 50-day average, it's likely a partial session captured
+ *  mid-day. Removing it prevents ADX/RSI/EMA from being skewed by an
+ *  incomplete candle. Returns the (possibly trimmed) array plus a
+ *  human-readable log string. */
+function stripIntradayBar(bars: PriceBar[], ticker: string): { bars: PriceBar[]; log: string } {
+  if (bars.length < 52) {
+    const b = bars[0];
+    const log = `[${ticker}] 마지막 봉 ${b?.date ?? '?'}, 종가 ${b?.close?.toLocaleString() ?? '?'}, 거래량 ${b?.volume?.toLocaleString() ?? '?'} (봉 ${bars.length}개, 인트라데이 필터 생략 — 데이터 부족)`;
+    return { bars, log };
+  }
+  const latest = bars[0];
+  const vol = latest?.volume;
+  if (vol == null) {
+    const log = `[${ticker}] 마지막 봉 ${latest?.date ?? '?'}, 종가 ${latest?.close?.toLocaleString() ?? '?'}, 거래량 없음 (필터 생략)`;
+    return { bars, log };
+  }
+  const window = bars.slice(1, 51).map((b) => b.volume).filter((v): v is number => v != null);
+  if (window.length < 25) {
+    const log = `[${ticker}] 마지막 봉 ${latest.date}, 종가 ${latest.close.toLocaleString()}, 거래량 ${vol.toLocaleString()} (비교 데이터 부족, 필터 생략)`;
+    return { bars, log };
+  }
+  const avg50 = window.reduce((a, b) => a + b, 0) / window.length;
+  const ratio = vol / avg50;
+  if (ratio < 0.5) {
+    const trimmed = bars.slice(1);
+    const prev = trimmed[0];
+    const log = `[${ticker}] 장중 미완성봉 제거: ${latest.date} 거래량 ${vol.toLocaleString()} (50일 평균 ${Math.round(avg50).toLocaleString()}의 ${(ratio * 100).toFixed(0)}%) → 마지막 봉 ${prev?.date ?? '?'}, 종가 ${prev?.close?.toLocaleString() ?? '?'}, 거래량 ${prev?.volume?.toLocaleString() ?? '?'}`;
+    return { bars: trimmed, log };
+  }
+  const log = `[${ticker}] 마지막 봉 ${latest.date}, 종가 ${latest.close.toLocaleString()}, 거래량 ${vol.toLocaleString()} (50일 평균 ${Math.round(avg50).toLocaleString()}의 ${(ratio * 100).toFixed(0)}% — 완성봉 판정)`;
+  return { bars, log };
+}
+
 /** Fetch daily OHLCV bars for the last `days` calendar days (default 400).
- *  Korean tickers (.KS/.KQ) use Naver chart API; all others use Yahoo. */
+ *  Korean tickers (.KS/.KQ) use Naver chart API; all others use Yahoo.
+ *  An intraday partial bar (volume < 50% of 50-day avg) is stripped so all
+ *  downstream indicators compute on completed candles only. */
 async function fetchPriceHistory(
   ticker: string,
   days = 400,
 ): Promise<PriceBar[]> {
   const upper = ticker.trim().toUpperCase();
-  if (/\.(KS|KQ)$/i.test(upper)) {
-    return fetchNaverPriceHistory(upper, days);
-  }
-  return fetchYahooPriceHistory(upper, days);
+  const raw = /\.(KS|KQ)$/i.test(upper)
+    ? await fetchNaverPriceHistory(upper, days)
+    : await fetchYahooPriceHistory(upper, days);
+  const { bars, log } = stripIntradayBar(raw, upper);
+  console.log(log);
+  return bars;
 }
 
 /** Latest USD/KRW spot from Yahoo Finance, or null on failure. */
