@@ -579,12 +579,12 @@ async function fetchNaverData(ticker: string): Promise<NaverData | null> {
 
 // ---- News headlines (Yahoo for US, Naver for Korean) ----------------------
 
-const SOURCE_WHITELIST_EN = /^(Reuters|AP|Associated Press|Bloomberg|CNBC|Wall Street Journal|WSJ|MarketWatch|Yahoo Finance|Barron'?s)$/i;
-const SOURCE_BLACKLIST_EN = /Motley Fool|Seeking Alpha|InvestorPlace|Benzinga|24\/7 Wall St|TipRanks|The Street|Zacks/i;
+const SOURCE_WHITELIST_EN = /^(Reuters|AP|Associated Press|Bloomberg|CNBC|Wall Street Journal|WSJ|MarketWatch|Yahoo Finance|PR Newswire|Barron'?s)$/i;
+const SOURCE_BLACKLIST_EN = /Motley Fool|Seeking Alpha|InvestorPlace|Benzinga|24\/7 Wall St|TipRanks|Simply Wall St|The Street|Zacks/i;
 const SOURCE_WHITELIST_KR = /연합뉴스|한국경제|한경|매일경제|매경|서울경제|조선비즈|이데일리|머니투데이|뉴스핌|파이낸셜뉴스|헤럴드경제/;
 const SOURCE_BLACKLIST_KR = /블로그|카페|칼럼|개인|opinion/i;
 
-const TITLE_EXCLUDE = /why you should|is it time to|best stocks? to buy|top picks?|(?:^|\s)opinion\b|should you buy|could soar|must.know|buy or sell|추천|전망대|증권가 추천/i;
+const TITLE_EXCLUDE = /why you should|is it time to|best stocks? to buy|top picks?|(?:^|\s)opinion\b|should you buy|could be\b|might be\b|should you\b|could soar|must.know|buy or sell|추천|전망대|증권가 추천/i;
 const TITLE_PRIORITY = /earnings|revenue|announces?|reports?|quarterly|guidance|dividend|merger|acqui|FDA|approval|실적|공시|발표|인수|합병|배당|분기|승인/i;
 
 function filterNews(raw: NewsItem[], isKorean: boolean): NewsItem[] {
