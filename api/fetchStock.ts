@@ -579,12 +579,57 @@ async function fetchNaverData(ticker: string): Promise<NaverData | null> {
 
 // ---- News headlines (Yahoo for US, Naver for Korean) ----------------------
 
+const SOURCE_WHITELIST_EN = /^(Reuters|AP|Associated Press|Bloomberg|CNBC|Wall Street Journal|WSJ|MarketWatch|Yahoo Finance|Barron'?s)$/i;
+const SOURCE_BLACKLIST_EN = /Motley Fool|Seeking Alpha|InvestorPlace|Benzinga|24\/7 Wall St|TipRanks|The Street|Zacks/i;
+const SOURCE_WHITELIST_KR = /연합뉴스|한국경제|한경|매일경제|매경|서울경제|조선비즈|이데일리|머니투데이|뉴스핌|파이낸셜뉴스|헤럴드경제/;
+const SOURCE_BLACKLIST_KR = /블로그|카페|칼럼|개인|opinion/i;
+
+const TITLE_EXCLUDE = /why you should|is it time to|best stocks? to buy|top picks?|(?:^|\s)opinion\b|should you buy|could soar|must.know|buy or sell|추천|전망대|증권가 추천/i;
+const TITLE_PRIORITY = /earnings|revenue|announces?|reports?|quarterly|guidance|dividend|merger|acqui|FDA|approval|실적|공시|발표|인수|합병|배당|분기|승인/i;
+
+function filterNews(raw: NewsItem[], isKorean: boolean): NewsItem[] {
+  const wl = isKorean ? SOURCE_WHITELIST_KR : SOURCE_WHITELIST_EN;
+  const bl = isKorean ? SOURCE_BLACKLIST_KR : SOURCE_BLACKLIST_EN;
+
+  const scored = raw.map((item) => {
+    const srcOk = wl.test(item.source);
+    const srcBad = bl.test(item.source);
+    const titleBad = TITLE_EXCLUDE.test(item.title);
+    const titleGood = TITLE_PRIORITY.test(item.title);
+    let tier: number;
+    if (titleGood && srcOk) tier = 0;
+    else if (titleGood && !srcBad) tier = 1;
+    else if (srcOk && !titleBad) tier = 2;
+    else if (!srcBad && !titleBad) tier = 3;
+    else if (titleGood) tier = 4;
+    else tier = 5;
+    return { item, tier };
+  });
+
+  scored.sort((a, b) => a.tier - b.tier);
+  return scored.filter((s) => s.tier <= 3).slice(0, 5).map((s) => s.item);
+}
+
+function fillToFive(filtered: NewsItem[], raw: NewsItem[], isKorean: boolean): NewsItem[] {
+  if (filtered.length >= 5) return filtered;
+  const bl = isKorean ? SOURCE_BLACKLIST_KR : SOURCE_BLACKLIST_EN;
+  const used = new Set(filtered.map((n) => n.link));
+  for (const item of raw) {
+    if (filtered.length >= 5) break;
+    if (used.has(item.link)) continue;
+    if (bl.test(item.source) && !TITLE_PRIORITY.test(item.title)) continue;
+    filtered.push(item);
+    used.add(item.link);
+  }
+  return filtered;
+}
+
 async function fetchYahooNews(ticker: string): Promise<NewsItem[]> {
   try {
-    const result = await yahooFinance.search(ticker, { newsCount: 5, quotesCount: 0 }, { validateResult: false });
+    const result = await yahooFinance.search(ticker, { newsCount: 20, quotesCount: 0 }, { validateResult: false });
     const news = (result as any)?.news;
     if (!Array.isArray(news)) return [];
-    return news.slice(0, 5).map((n: any) => ({
+    const raw: NewsItem[] = news.map((n: any) => ({
       title: n.title ?? '',
       source: n.publisher ?? '',
       date: n.providerPublishTime
@@ -592,6 +637,7 @@ async function fetchYahooNews(ticker: string): Promise<NewsItem[]> {
         : '',
       link: n.link ?? '',
     })).filter((n: NewsItem) => n.title && n.link);
+    return fillToFive(filterNews(raw, false), raw, false);
   } catch {
     return [];
   }
@@ -609,18 +655,17 @@ async function fetchNaverNews(ticker: string): Promise<NewsItem[]> {
     const html = buf.toString('latin1')
       .replace(/[\x80-\xff]/g, (ch) => `&#${ch.charCodeAt(0)};`);
 
-    const items: NewsItem[] = [];
-    // Parse table.type5 rows
+    const raw: NewsItem[] = [];
     const rowRe = /<tr[^>]*>\s*<td[^>]*class="title"[^>]*>.*?<a[^>]*class="tit"[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>.*?<td[^>]*class="info"[^>]*>(.*?)<\/td>.*?<td[^>]*class="date"[^>]*>(.*?)<\/td>/gs;
     let m;
-    while ((m = rowRe.exec(html)) !== null && items.length < 5) {
+    while ((m = rowRe.exec(html)) !== null && raw.length < 20) {
       const link = m[1].startsWith('http') ? m[1] : `https://finance.naver.com${m[1]}`;
       const title = m[2].replace(/<[^>]+>/g, '').trim();
       const source = m[3].replace(/<[^>]+>/g, '').trim();
       const date = m[4].replace(/<[^>]+>/g, '').trim();
-      if (title && link) items.push({ title, source, date, link });
+      if (title && link) raw.push({ title, source, date, link });
     }
-    return items;
+    return fillToFive(filterNews(raw, true), raw, true);
   } catch {
     return [];
   }
