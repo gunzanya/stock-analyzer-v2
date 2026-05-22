@@ -165,7 +165,7 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
         delta: 10,
       });
     } else if (dist > 0.10) {
-      if (near52wHigh) {
+      if (near52wHigh && primaryType !== 'SPECULATIVE') {
         gains.push({ reason: `EMA20 +${pct.toFixed(1)}% (과이격이나 52주 고점 90%+ → 면제)`, delta: 0 });
       } else {
         deductions.push({
@@ -480,7 +480,7 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
     deductions.push({ reason: `OBV 다이버전스 (가격↑ OBV↓) → -15`, delta: -15 });
   }
   if (r30 != null && r30 > 0.20) {
-    if (near52wHigh) {
+    if (near52wHigh && primaryType !== 'SPECULATIVE') {
       deductions.push({ reason: `30일 +${(r30 * 100).toFixed(0)}% 급등 → -5 (52주 고점 90%+ 감경)`, delta: -5 });
     } else {
       deductions.push({ reason: `30일 +${(r30 * 100).toFixed(0)}% 급등 → -10 (눌림 위험)`, delta: -10 });

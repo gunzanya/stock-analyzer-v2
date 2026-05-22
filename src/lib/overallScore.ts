@@ -9,6 +9,7 @@
 import type {
   FundamentalScoreResult,
   OverallScoreResult,
+  StockType,
   TimingScoreResult,
 } from './types.js';
 
@@ -25,12 +26,14 @@ function levelOf(score: number): OverallScoreResult['level'] {
 export function computeOverall(
   fundamental: FundamentalScoreResult,
   timing: TimingScoreResult,
+  primaryType?: StockType | null,
 ): OverallScoreResult {
   // Timing is 0–90; rescale to 0–100 to match Fundamental's range.
   const timingPct = (timing.score / 90) * 100;
   const blended =
     fundamental.score * OVERALL_FUNDAMENTAL_WEIGHT +
     timingPct * OVERALL_TIMING_WEIGHT;
-  const score = Math.max(0, Math.min(100, Math.round(blended)));
+  let score = Math.max(0, Math.min(100, Math.round(blended)));
+  if (primaryType === 'SPECULATIVE') score = Math.min(score, 65);
   return { score, level: levelOf(score) };
 }

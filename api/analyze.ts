@@ -131,7 +131,7 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
   });
   const fundamentalScore = computeFundamental(canslim, classification);
   const adjustedTiming = applyCoherenceFloor(timingScore, fundamentalScore.score);
-  const overallScore = computeOverall(fundamentalScore, adjustedTiming);
+  const overallScore = computeOverall(fundamentalScore, adjustedTiming, classification.primary);
   const strategy = hasPrices
     ? computeStrategy(stockBars, classification)
     : {

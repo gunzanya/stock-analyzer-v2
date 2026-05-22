@@ -203,7 +203,7 @@ function scoreFastGrower(fund: FundamentalData): TypeCandidateScore {
 
   return {
     type: 'FAST_GROWER',
-    score: Math.max(0, score),
+    score: Math.min(Math.max(0, score), 100),
     reasons,
   };
 }
@@ -298,7 +298,7 @@ function scoreStalwart(fund: FundamentalData): TypeCandidateScore {
     }
   }
 
-  return { type: 'STALWART', score: Math.max(0, score), reasons };
+  return { type: 'STALWART', score: Math.min(Math.max(0, score), 100), reasons };
 }
 
 function scoreSlowGrower(fund: FundamentalData): TypeCandidateScore {
@@ -360,7 +360,7 @@ function scoreSlowGrower(fund: FundamentalData): TypeCandidateScore {
     reasons.push(`산업 ${ind} → +10`);
   }
 
-  return { type: 'SLOW_GROWER', score: Math.max(0, score), reasons };
+  return { type: 'SLOW_GROWER', score: Math.min(Math.max(0, score), 100), reasons };
 }
 
 function scoreCyclical(fund: FundamentalData): TypeCandidateScore {
@@ -439,7 +439,7 @@ function scoreCyclical(fund: FundamentalData): TypeCandidateScore {
     reasons.push('Tech/Comm + 매출 안정 → -15 (순환 패턴 아님)');
   }
 
-  return { type: 'CYCLICAL', score: Math.max(0, score), reasons };
+  return { type: 'CYCLICAL', score: Math.min(Math.max(0, score), 100), reasons };
 }
 
 function scoreTurnaround(fund: FundamentalData): TypeCandidateScore {
@@ -518,7 +518,7 @@ function scoreTurnaround(fund: FundamentalData): TypeCandidateScore {
     reasons.push('영업이익 QoQ 흑자전환 → +15');
   }
 
-  return { type: 'TURNAROUND', score: Math.max(0, score), reasons };
+  return { type: 'TURNAROUND', score: Math.min(Math.max(0, score), 100), reasons };
 }
 
 function scoreAssetPlay(fund: FundamentalData): TypeCandidateScore {
@@ -594,7 +594,7 @@ function scoreAssetPlay(fund: FundamentalData): TypeCandidateScore {
     reasons.push('크립토 자산 보유 힌트 → +20');
   }
 
-  return { type: 'ASSET_PLAY', score: Math.max(0, score), reasons };
+  return { type: 'ASSET_PLAY', score: Math.min(Math.max(0, score), 100), reasons };
 }
 
 function scoreSpeculative(fund: FundamentalData): TypeCandidateScore {
@@ -715,7 +715,7 @@ function scoreSpeculative(fund: FundamentalData): TypeCandidateScore {
 
   // EPS YoY > 0 silenced — speculation isn't gated on growth; some lose & speculate
   void eps;
-  return { type: 'SPECULATIVE', score: Math.max(0, score), reasons };
+  return { type: 'SPECULATIVE', score: Math.min(Math.max(0, score), 100), reasons };
 }
 
 // ---------- public API ----------
