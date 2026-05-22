@@ -365,23 +365,22 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
     warnings,
   };
 
-  // For .KS / .KQ tickers, fill any null Yahoo fields from Naver (HTML
-  // scrape, 5s timeout, graceful failure). Yahoo always wins when present.
+  // For .KS / .KQ tickers, enhance with Naver data. PER/PBR/ROE/operating
+  // margin use Naver annual/TTM values (more accurate for Korean stocks).
+  // Other fields fill null Yahoo gaps only.
   if (/\.(KS|KQ)$/i.test(upper)) {
     const nv = await fetchNaverData(upper);
     if (nv) {
-      if (out.per == null && nv.per != null) out.per = nv.per;
-      if (out.pbr == null && nv.pbr != null) out.pbr = nv.pbr;
+      if (nv.per != null) out.per = nv.per;
+      if (nv.pbr != null) out.pbr = nv.pbr;
+      if (nv.roe != null) out.roe = nv.roe;
+      if (nv.operatingMargin != null) out.operatingMargin = nv.operatingMargin;
       if (out.trailingEps == null && nv.eps != null) out.trailingEps = nv.eps;
       if (out.dividendYield == null && nv.dividendYield != null) {
         out.dividendYield = nv.dividendYield;
       }
       if (out.marketCap == null && nv.marketCapKrw != null) {
         out.marketCap = nv.marketCapKrw;
-      }
-      if (out.roe == null && nv.roe != null) out.roe = nv.roe;
-      if (out.operatingMargin == null && nv.operatingMargin != null) {
-        out.operatingMargin = nv.operatingMargin;
       }
     }
   }
@@ -438,6 +437,39 @@ function lastTdInRow(html: string, label: string): number | null {
   return parseNumeric(last);
 }
 
+/** Extract ALL numeric <td> values from a 기업실적분석 row, preserving column order. */
+function allTdsInRow(html: string, label: string): (number | null)[] {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const row = html.match(
+    new RegExp(`<tr[^>]*>[^<]*<th[^>]*>[^<]*<strong>${escaped}[^<]*</strong>[\\s\\S]*?</tr>`, 'i'),
+  );
+  if (!row) return [];
+  const tdRe = /<td[^>]*>([\s\S]*?)<\/td>/g;
+  const vals: (number | null)[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = tdRe.exec(row[0])) != null) {
+    const txt = m[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+    if (!txt || txt === '-' || !/[\d.-]/.test(txt)) vals.push(null);
+    else vals.push(parseNumeric(txt));
+  }
+  return vals;
+}
+
+/** Parse per-column estimate flags from the 기업실적분석 table header. */
+function parseEstimateFlags(html: string): boolean[] {
+  const m = html.match(/tb_type1_ifrs[\s\S]*?<thead>([\s\S]*?)<\/thead>/i);
+  if (!m) return [];
+  const thRe = /<th[^>]*>([\s\S]*?)<\/th>/g;
+  const flags: boolean[] = [];
+  let tm: RegExpExecArray | null;
+  while ((tm = thRe.exec(m[1])) != null) {
+    if (/\d{4}\.\d{2}/.test(tm[1])) {
+      flags.push(/\(E\)|&#40;E&#41;/i.test(tm[1]));
+    }
+  }
+  return flags;
+}
+
 /** Scrape PER/PBR/EPS/dividend yield/marketCap (+ best-effort ROE & op
  *  margin) from Naver Finance for a Korean ticker. Returns null on any
  *  failure so callers can fall back to whatever they already had. */
@@ -484,20 +516,63 @@ async function fetchNaverData(ticker: string): Promise<NaverData | null> {
     if (eok > 0) marketCapKrw = eok * 1e8; // 억원 → 원
   }
 
-  // ROE / operating margin: in the 기업실적분석 table — best-effort row scrape.
-  // The row has multiple <td>s (annual + quarterly columns). The rightmost
-  // non-empty cell is the most recent estimate.
-  const roePct = lastTdInRow(html, 'ROE(지배주주)');
-  const opMarginPct = lastTdInRow(html, '영업이익률');
+  // ---- 기업실적분석 table: annual / TTM metrics ----
+  // Table layout: [연간 cols (colspan N)] [분기 cols (colspan M)]
+  const annualColMatch = html.match(
+    /colspan="(\d+)"[^>]*>[^<]*<strong>[^<]*최근\s*연간\s*실적/i,
+  );
+  const nAnnual = annualColMatch ? parseInt(annualColMatch[1], 10) : 4;
+  const estFlags = parseEstimateFlags(html);
+
+  // Last non-estimate value in the annual range (indices 0..nAnnual-1)
+  const lastActual = (vals: (number | null)[], end: number): number | null => {
+    for (let i = Math.min(end, vals.length) - 1; i >= 0; i--) {
+      if (vals[i] != null && !estFlags[i]) return vals[i];
+    }
+    return null;
+  };
+
+  // Annual PER / PBR / ROE from table (more accurate than top-level em tags)
+  const annualPer = lastActual(allTdsInRow(html, 'PER(배)'), nAnnual);
+  const annualPbr = lastActual(allTdsInRow(html, 'PBR(배)'), nAnnual);
+  const annualRoePct = lastActual(allTdsInRow(html, 'ROE(지배주주)'), nAnnual);
+
+  // TTM operating margin: sum recent 4 non-estimate quarterly 영업이익 / 매출액
+  const revAll = allTdsInRow(html, '매출액');
+  const opAll = allTdsInRow(html, '영업이익');
+  let ttmOpMargin: number | null = null;
+  if (revAll.length > nAnnual && opAll.length > nAnnual) {
+    const qRevs: number[] = [];
+    const qOps: number[] = [];
+    for (let i = revAll.length - 1; i >= nAnnual && qRevs.length < 4; i--) {
+      if (estFlags[i]) continue;
+      if (revAll[i] != null && opAll[i] != null) {
+        qRevs.unshift(revAll[i]!);
+        qOps.unshift(opAll[i]!);
+      }
+    }
+    if (qRevs.length === 4) {
+      const totalRev = qRevs.reduce((a, b) => a + b, 0);
+      const totalOp = qOps.reduce((a, b) => a + b, 0);
+      if (totalRev > 0) ttmOpMargin = totalOp / totalRev;
+    }
+  }
+
+  // Fallback: single-row rightmost scrape (legacy behavior)
+  const fallbackRoePct = lastTdInRow(html, 'ROE(지배주주)');
+  const fallbackOpMarginPct = lastTdInRow(html, '영업이익률');
 
   return {
-    per,
-    pbr,
+    per: annualPer ?? per,
+    pbr: annualPbr ?? pbr,
     eps,
     dividendYield: dvrPct != null ? dvrPct / 100 : null,
     marketCapKrw,
-    roe: roePct != null ? roePct / 100 : null,
-    operatingMargin: opMarginPct != null ? opMarginPct / 100 : null,
+    roe: annualRoePct != null ? annualRoePct / 100
+       : fallbackRoePct != null ? fallbackRoePct / 100
+       : null,
+    operatingMargin: ttmOpMargin
+      ?? (fallbackOpMarginPct != null ? fallbackOpMarginPct / 100 : null),
   };
 }
 
