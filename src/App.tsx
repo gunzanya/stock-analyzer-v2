@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { fetchAnalysis } from './lib/api.js';
 import type { AnalysisResult } from './lib/types.js';
 import { loadFavorites, saveFavorites } from './lib/favorites.js';
@@ -137,7 +137,7 @@ function App() {
   return (
     <div className="min-h-screen bg-[#0a0f1a] text-slate-100">
       <header className="border-b border-[#1e293b] bg-[#0f172a] px-4 py-4 sticky top-0 z-10 shadow-lg shadow-black/50">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-[1400px] mx-auto">
           <div className="flex items-baseline justify-between gap-3 mb-3">
             <h1 className="text-lg sm:text-xl font-bold flex items-center gap-2">
               <span>📊</span>
@@ -162,13 +162,13 @@ function App() {
           </div>
 
           {tab === 'analyze' && (
-            <>
+            <div className="flex flex-col sm:flex-row gap-2">
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   void runAnalysis(input);
                 }}
-                className="flex flex-col sm:flex-row gap-2"
+                className="flex flex-1 gap-2"
               >
                 <TickerInput
                   value={input}
@@ -178,39 +178,26 @@ function App() {
                 />
                 <button
                   type="submit"
-                  className="min-h-[44px] px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-base active:bg-indigo-700 disabled:opacity-50 transition-colors"
+                  className="min-h-[44px] px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-base active:bg-indigo-700 disabled:opacity-50 transition-colors whitespace-nowrap"
                   disabled={cards.some((c) => c.status === 'loading') || input.trim() === ''}
                 >
                   분석
                 </button>
               </form>
-
-              {favorites.length > 0 && (
-                <div className="mt-3">
-                  <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">
-                    ⭐ 내 관심종목 ({favorites.length})
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {favorites.map((t) => (
-                      <FavoriteChip
-                        key={t}
-                        ticker={t}
-                        onAnalyze={() => {
-                          setInput(t);
-                          void runAnalysis(t);
-                        }}
-                        onRemove={() => toggleFavorite(t)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
+              <FavoritesDropdown
+                favorites={favorites}
+                onAnalyze={(t) => {
+                  setInput(t);
+                  void runAnalysis(t);
+                }}
+                onRemove={toggleFavorite}
+              />
+            </div>
           )}
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto p-4">
+      <main className="max-w-[1400px] mx-auto p-4">
         {tab === 'portfolio' ? (
           <PortfolioPanel onPickTicker={(t) => {
             changeTab('analyze');
@@ -243,7 +230,7 @@ function App() {
         )}
       </main>
 
-      <footer className="max-w-6xl mx-auto px-4 py-8 text-center text-[11px] text-slate-600">
+      <footer className="max-w-[1400px] mx-auto px-4 py-8 text-center text-[11px] text-slate-600">
         분석 데이터: Yahoo Finance · 본 분석은 투자 권유가 아닙니다.
       </footer>
     </div>
@@ -275,36 +262,79 @@ function TabButton({
   );
 }
 
-function FavoriteChip({
-  ticker,
+function FavoritesDropdown({
+  favorites,
   onAnalyze,
   onRemove,
 }: {
-  ticker: string;
-  onAnalyze: () => void;
-  onRemove: () => void;
+  favorites: string[];
+  onAnalyze: (ticker: string) => void;
+  onRemove: (ticker: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
   return (
-    <span className="inline-flex items-center gap-0 rounded-full border border-amber-700/40 bg-amber-900/15 text-amber-200 overflow-hidden">
+    <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={onAnalyze}
-        className="min-h-[32px] pl-3 pr-2 py-1 text-xs font-medium hover:bg-amber-800/30 active:bg-amber-700/40 transition-colors"
+        onClick={() => setOpen((v) => !v)}
+        className={
+          'min-h-[44px] min-w-[44px] px-3 rounded-lg border text-lg transition-colors ' +
+          (open
+            ? 'border-amber-500 bg-amber-900/30 text-amber-300'
+            : favorites.length > 0
+              ? 'border-amber-700/40 bg-amber-900/15 text-amber-400 hover:bg-amber-900/30'
+              : 'border-[#1e293b] bg-[#0a0f1a] text-slate-500 hover:text-slate-300')
+        }
+        aria-label={`관심종목 ${favorites.length}개`}
       >
-        ⭐ {ticker}
+        ⭐{favorites.length > 0 && (
+          <span className="ml-1 text-xs font-bold">{favorites.length}</span>
+        )}
       </button>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-        className="min-h-[32px] min-w-[28px] px-1.5 text-amber-400/60 hover:text-amber-300 hover:bg-red-900/40 active:bg-red-800/50 transition-colors text-sm leading-none"
-        aria-label={`${ticker} 관심종목에서 제거`}
-      >
-        ×
-      </button>
-    </span>
+      {open && (
+        <div className="absolute right-0 mt-2 w-56 rounded-lg border border-[#1e293b] bg-[#0f172a] shadow-xl shadow-black/40 z-50 overflow-hidden">
+          {favorites.length === 0 ? (
+            <p className="px-4 py-6 text-xs text-slate-500 text-center">
+              관심종목이 없습니다<br />
+              분석 결과의 ⭐ 버튼으로 추가하세요
+            </p>
+          ) : (
+            <ul className="max-h-72 overflow-y-auto py-1">
+              {favorites.map((t) => (
+                <li key={t} className="flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => { onAnalyze(t); setOpen(false); }}
+                    className="flex-1 text-left px-4 py-2.5 text-sm font-medium text-amber-200 hover:bg-amber-900/25 transition-colors"
+                  >
+                    ⭐ {t}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRemove(t)}
+                    className="px-3 py-2.5 text-amber-400/50 hover:text-red-400 hover:bg-red-900/30 transition-colors text-sm"
+                    aria-label={`${t} 관심종목에서 제거`}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
