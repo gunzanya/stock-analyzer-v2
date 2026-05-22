@@ -1,18 +1,21 @@
+import { useMemo } from 'react';
 import type { NewsItem } from '../lib/types.js';
+import { translateNewsItems } from '../lib/translateNews.js';
 
 interface Props {
   news: NewsItem[];
 }
 
 export function NewsCard({ news }: Props) {
-  if (news.length === 0) return null;
+  const translated = useMemo(() => translateNewsItems(news), [news]);
+  if (translated.length === 0) return null;
   return (
     <section className="rounded-xl bg-[#0f172a] border border-[#1e293b] p-4">
       <h3 className="text-xs font-semibold text-slate-400 mb-3 tracking-wider uppercase flex items-center gap-1.5">
         <span>최근 뉴스</span>
       </h3>
       <ul className="space-y-2.5">
-        {news.map((item, i) => (
+        {translated.map((item, i) => (
           <li key={i}>
             <a
               href={item.link}

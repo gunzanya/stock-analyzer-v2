@@ -1,5 +1,4 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import Anthropic from '@anthropic-ai/sdk';
 import { fetchFundamental, fetchPriceHistory, fetchUsdKrwRate, fetchNaverSupplyDemand, fetchNews } from './fetchStock.js';
 import { classify } from '../src/lib/typeWeights.js';
 import {
@@ -69,30 +68,6 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     news = await fetchNews(ticker);
   } catch {
     news = [];
-  }
-  if (news.length > 0 && !isKoreanTicker) {
-    try {
-      const anthropic = new Anthropic();
-      const titles = news.map((n) => n.title);
-      const msg = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 512,
-        messages: [{
-          role: 'user',
-          content: `다음 영문 뉴스 헤드라인을 자연스러운 한국어로 번역해줘. JSON 배열로 반환. 원문의 뉘앙스 유지. 반드시 JSON 배열만 출력하고 다른 텍스트는 쓰지 마.\n\n${JSON.stringify(titles)}`,
-        }],
-      });
-      const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
-      const match = text.match(/\[[\s\S]*\]/);
-      if (match) {
-        const translated: string[] = JSON.parse(match[0]);
-        for (let i = 0; i < news.length && i < translated.length; i++) {
-          if (translated[i]) news[i].titleKo = translated[i];
-        }
-      }
-    } catch (err) {
-      console.warn(`[${ticker}] news translation failed:`, (err as Error).message);
-    }
   }
 
   const hasPrices = stockBars.length >= 50 && benchBars.length >= 50;
