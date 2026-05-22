@@ -76,11 +76,6 @@ export function computeFundamental(
   if (fund && isCyclicalPeakSector(fund)) {
     const eps = fund.epsGrowthYoY;
     if (isNum(eps) && eps > 0.5) {
-      let base: number;
-      if (eps > 2.0) base = -20;
-      else if (eps > 1.0) base = -15;
-      else base = -10;
-
       const mitigated =
         isNum(fund.per) && isNum(fund.forwardPER) &&
         fund.per > 0 && fund.forwardPER > 0 &&
