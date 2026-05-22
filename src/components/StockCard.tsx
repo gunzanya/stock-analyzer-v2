@@ -19,6 +19,7 @@ import { RiskFactorsCard } from './RiskFactorsCard.js';
 import { TimingDetailCard } from './TimingDetailCard.js';
 import { AddToPortfolioModal } from './AddToPortfolioModal.js';
 import { SupplyDemandCard } from './SupplyDemandCard.js';
+import { NewsCard } from './NewsCard.js';
 
 const STOCK_TYPE_ORDER: StockType[] = [
   'FAST_GROWER',
@@ -348,6 +349,13 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
             </h3>
             <p className="mt-2 text-xs text-slate-500">데이터 없음</p>
           </section>
+        </div>
+      )}
+
+      {/* News */}
+      {result.news && result.news.length > 0 && (
+        <div className="px-5 pt-4">
+          <NewsCard news={result.news} />
         </div>
       )}
 

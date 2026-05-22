@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { fetchFundamental, fetchPriceHistory, fetchUsdKrwRate, fetchNaverSupplyDemand } from './fetchStock.js';
+import { fetchFundamental, fetchPriceHistory, fetchUsdKrwRate, fetchNaverSupplyDemand, fetchNews } from './fetchStock.js';
 import { classify } from '../src/lib/typeWeights.js';
 import {
   adx as adxOf,
@@ -26,7 +26,7 @@ import { computeOverall } from '../src/lib/overallScore.js';
 import { computeStrategy } from '../src/lib/strategy.js';
 import { getTypeInsight } from '../src/lib/typeInsights.js';
 import { extractRiskFactors } from '../src/lib/riskFactors.js';
-import type { AnalysisResult, TimingDetail, SupplyDemandData } from '../src/lib/types.js';
+import type { AnalysisResult, TimingDetail, SupplyDemandData, NewsItem } from '../src/lib/types.js';
 
 async function analyzeOne(ticker: string): Promise<AnalysisResult> {
   const fund = await fetchFundamental(ticker);
@@ -63,6 +63,13 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
       supplyDemand = null;
     }
   }
+  let news: NewsItem[] = [];
+  try {
+    news = await fetchNews(ticker);
+  } catch {
+    news = [];
+  }
+
   const hasPrices = stockBars.length >= 50 && benchBars.length >= 50;
 
   const safetyGuard = hasPrices
@@ -252,6 +259,7 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     priceBars,
     usdKrwRate,
     supplyDemand,
+    news,
   };
 }
 

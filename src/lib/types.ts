@@ -239,6 +239,15 @@ export interface SupplyDemandData {
   dailyRows: number;       // 사용된 일수
 }
 
+// ---- News headline item ----
+
+export interface NewsItem {
+  title: string;
+  source: string;
+  date: string;       // ISO date or human-readable
+  link: string;
+}
+
 // Final analyzer output per ticker
 export interface AnalysisResult {
   fundamental: FundamentalData;
@@ -268,6 +277,7 @@ export interface AnalysisResult {
   priceBars: PriceBar[]; // for chart (last ~130 days)
   usdKrwRate: number | null; // USD/KRW spot, null on fetch failure
   supplyDemand: SupplyDemandData | null; // Korean stocks only
+  news: NewsItem[];
 }
 
 // ---- Timing precision analysis (5 sub-signals) ----

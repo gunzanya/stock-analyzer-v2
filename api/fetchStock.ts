@@ -7,6 +7,7 @@ import type {
   AnnualDatum,
   PriceBar,
   SupplyDemandData,
+  NewsItem,
 } from '../src/lib/types.js';
 
 // v3 requires instantiation
@@ -574,6 +575,63 @@ async function fetchNaverData(ticker: string): Promise<NaverData | null> {
     operatingMargin: ttmOpMargin
       ?? (fallbackOpMarginPct != null ? fallbackOpMarginPct / 100 : null),
   };
+}
+
+// ---- News headlines (Yahoo for US, Naver for Korean) ----------------------
+
+async function fetchYahooNews(ticker: string): Promise<NewsItem[]> {
+  try {
+    const result = await yahooFinance.search(ticker, { newsCount: 5, quotesCount: 0 }, { validateResult: false });
+    const news = (result as any)?.news;
+    if (!Array.isArray(news)) return [];
+    return news.slice(0, 5).map((n: any) => ({
+      title: n.title ?? '',
+      source: n.publisher ?? '',
+      date: n.providerPublishTime
+        ? new Date(typeof n.providerPublishTime === 'number' ? n.providerPublishTime * 1000 : n.providerPublishTime).toISOString().slice(0, 10)
+        : '',
+      link: n.link ?? '',
+    })).filter((n: NewsItem) => n.title && n.link);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchNaverNews(ticker: string): Promise<NewsItem[]> {
+  const code = ticker.replace(/\.(KS|KQ)$/i, '');
+  const referer = `https://finance.naver.com/item/news.naver?code=${code}`;
+  const url = `https://finance.naver.com/item/news_news.naver?code=${code}&page=1&sm=title_entity_id.basic&clusterId=`;
+  try {
+    const res = await fetch(url, {
+      headers: { Referer: referer, 'User-Agent': 'Mozilla/5.0' },
+    });
+    const buf = Buffer.from(await res.arrayBuffer());
+    const html = buf.toString('latin1')
+      .replace(/[\x80-\xff]/g, (ch) => `&#${ch.charCodeAt(0)};`);
+
+    const items: NewsItem[] = [];
+    // Parse table.type5 rows
+    const rowRe = /<tr[^>]*>\s*<td[^>]*class="title"[^>]*>.*?<a[^>]*class="tit"[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>.*?<td[^>]*class="info"[^>]*>(.*?)<\/td>.*?<td[^>]*class="date"[^>]*>(.*?)<\/td>/gs;
+    let m;
+    while ((m = rowRe.exec(html)) !== null && items.length < 5) {
+      const link = m[1].startsWith('http') ? m[1] : `https://finance.naver.com${m[1]}`;
+      const title = m[2].replace(/<[^>]+>/g, '').trim();
+      const source = m[3].replace(/<[^>]+>/g, '').trim();
+      const date = m[4].replace(/<[^>]+>/g, '').trim();
+      if (title && link) items.push({ title, source, date, link });
+    }
+    return items;
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchNews(ticker: string): Promise<NewsItem[]> {
+  const isKorean = /\.(KS|KQ)$/i.test(ticker);
+  if (isKorean) {
+    return fetchNaverNews(ticker);
+  }
+  return fetchYahooNews(ticker);
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
