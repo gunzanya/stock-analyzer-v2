@@ -22,8 +22,23 @@ export interface ClosedPosition extends PortfolioPosition {
   closedQuantity: number;
 }
 
+export interface PortfolioSnapshot {
+  date: string;
+  totalInvestedKRW: number;
+  totalValueKRW: number;
+  returnPct: number;
+}
+
+export interface PortfolioEvent {
+  date: string;
+  type: 'buy' | 'close';
+  ticker: string;
+}
+
 const POS_KEY = 'portfolio_positions';
 const CLOSED_KEY = 'portfolio_closed';
+const SNAP_KEY = 'portfolio_snapshots';
+const EVENT_KEY = 'portfolio_events';
 
 function read<T>(key: string): T[] {
   try {
@@ -71,6 +86,7 @@ export function addPosition(pos: PortfolioPosition) {
   const all = loadPositions();
   all.push(pos);
   savePositions(all);
+  addEvent('buy', pos.ticker);
 }
 
 export function removePosition(id: string) {
@@ -106,6 +122,7 @@ export function closePosition(id: string, closePrice: number, pct: number = 1) {
   const allClosed = loadClosed();
   allClosed.push(closed);
   saveClosed(allClosed);
+  addEvent('close', pos.ticker);
 
   if (remainQty <= 0) {
     removePosition(id);
@@ -119,4 +136,41 @@ export function closePosition(id: string, closePrice: number, pct: number = 1) {
 
 export function genId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// ---- Snapshots & events ----
+
+export function loadSnapshots(): PortfolioSnapshot[] {
+  return read<PortfolioSnapshot>(SNAP_KEY);
+}
+
+export function saveSnapshots(snaps: PortfolioSnapshot[], sync = true) {
+  write(SNAP_KEY, snaps);
+  if (sync) import('./sync.js').then((m) => m.pushToServer());
+}
+
+export function recordSnapshot(snap: Omit<PortfolioSnapshot, 'date'>) {
+  const date = new Date().toISOString().slice(0, 10);
+  const all = loadSnapshots();
+  const idx = all.findIndex((s) => s.date === date);
+  const entry: PortfolioSnapshot = { date, ...snap };
+  if (idx >= 0) all[idx] = entry;
+  else all.push(entry);
+  saveSnapshots(all);
+}
+
+export function loadEvents(): PortfolioEvent[] {
+  return read<PortfolioEvent>(EVENT_KEY);
+}
+
+export function saveEvents(events: PortfolioEvent[], sync = true) {
+  write(EVENT_KEY, events);
+  if (sync) import('./sync.js').then((m) => m.pushToServer());
+}
+
+function addEvent(type: 'buy' | 'close', ticker: string) {
+  const date = new Date().toISOString().slice(0, 10);
+  const all = loadEvents();
+  all.push({ date, type, ticker });
+  saveEvents(all);
 }

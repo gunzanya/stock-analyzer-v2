@@ -11,16 +11,18 @@ const KEY = 'portfolio_all';
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'GET') {
     const data = await redis.get(KEY);
-    return res.json(data ?? { positions: [], closed: [], watchlist: [] });
+    return res.json(data ?? { positions: [], closed: [], watchlist: [], snapshots: [], events: [] });
   }
 
   if (req.method === 'POST') {
-    const { positions, closed, watchlist } = req.body as {
+    const { positions, closed, watchlist, snapshots, events } = req.body as {
       positions: unknown[];
       closed: unknown[];
       watchlist: unknown[];
+      snapshots?: unknown[];
+      events?: unknown[];
     };
-    await redis.set(KEY, { positions, closed, watchlist });
+    await redis.set(KEY, { positions, closed, watchlist, snapshots: snapshots ?? [], events: events ?? [] });
     return res.json({ ok: true });
   }
 

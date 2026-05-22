@@ -3,6 +3,9 @@ import {
   closePosition,
   loadClosed,
   loadPositions,
+  loadSnapshots,
+  loadEvents,
+  recordSnapshot,
   removePosition,
   updatePosition,
   type ClosedPosition,
@@ -11,6 +14,7 @@ import {
 } from '../lib/portfolio.js';
 import { fetchAnalysis } from '../lib/api.js';
 import { onSyncStatus } from '../lib/sync.js';
+import { PortfolioReturnChart } from './PortfolioReturnChart.js';
 
 type PriceMap = Record<string, number | null>;
 
@@ -58,6 +62,8 @@ export function PortfolioPanel({ onPickTicker }: { onPickTicker: (ticker: string
   const [view, setView] = useState<'active' | 'history' | 'stats'>('active');
   const [posView, setPosView] = useState<PosView>(loadPosView);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  const [snapshots, setSnapshots] = useState(loadSnapshots);
+  const [events, setEvents] = useState(loadEvents);
 
   function changePosView(v: PosView) {
     setPosView(v);
@@ -67,6 +73,8 @@ export function PortfolioPanel({ onPickTicker }: { onPickTicker: (ticker: string
   const reload = useCallback(() => {
     setPositions(loadPositions());
     setClosed(loadClosed());
+    setSnapshots(loadSnapshots());
+    setEvents(loadEvents());
   }, []);
 
   useEffect(() => { reload(); }, [reload]);
@@ -92,6 +100,19 @@ export function PortfolioPanel({ onPickTicker }: { onPickTicker: (ticker: string
     setPrices(map);
     if (gotRate != null) setFxRate(gotRate);
     setLoading(false);
+
+    const rate = gotRate ?? FX_FALLBACK;
+    let inv = 0;
+    let val = 0;
+    for (const p of positions) {
+      const kr = isKR(p.ticker);
+      inv += toKRW(p.entryPrice * p.quantity, kr, rate);
+      val += toKRW((map[p.ticker] ?? p.entryPrice) * p.quantity, kr, rate);
+    }
+    if (inv > 0) {
+      recordSnapshot({ totalInvestedKRW: inv, totalValueKRW: val, returnPct: (val - inv) / inv });
+      setSnapshots(loadSnapshots());
+    }
   }, [positions]);
 
   useEffect(() => { void fetchPrices(); }, [fetchPrices]);
@@ -182,6 +203,8 @@ export function PortfolioPanel({ onPickTicker }: { onPickTicker: (ticker: string
                 />
                 <SummaryBox label="보유 종목" value={`${positions.length}개`} sub={`평균 ${avgDays}일 · 환율 ${Math.round(fxRate).toLocaleString()}`} />
               </div>
+
+              <PortfolioReturnChart snapshots={snapshots} events={events} />
 
               <div className="flex items-center justify-between">
                 {loading && (

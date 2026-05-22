@@ -1,4 +1,4 @@
-import { loadPositions, savePositions, loadClosed, saveClosed } from './portfolio.js';
+import { loadPositions, savePositions, loadClosed, saveClosed, loadSnapshots, saveSnapshots, loadEvents, saveEvents } from './portfolio.js';
 import { loadFavorites, saveFavorites } from './favorites.js';
 
 type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error';
@@ -28,10 +28,12 @@ export async function pullFromServer(): Promise<boolean> {
       closed: unknown[];
       watchlist: unknown[];
     };
-    if (data.positions?.length || data.closed?.length || data.watchlist?.length) {
+    if (data.positions?.length || data.closed?.length || data.watchlist?.length || (data as any).snapshots?.length || (data as any).events?.length) {
       savePositions(data.positions as never[], false);
       saveClosed(data.closed as never[], false);
       saveFavorites((data.watchlist ?? []) as string[], false);
+      if ((data as any).snapshots?.length) saveSnapshots((data as any).snapshots as never[], false);
+      if ((data as any).events?.length) saveEvents((data as any).events as never[], false);
     }
     notify('synced');
     return true;
@@ -50,6 +52,8 @@ export function pushToServer() {
         positions: loadPositions(),
         closed: loadClosed(),
         watchlist: loadFavorites(),
+        snapshots: loadSnapshots(),
+        events: loadEvents(),
       };
       const res = await fetch('/api/portfolio-sync', {
         method: 'POST',
