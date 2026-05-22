@@ -951,16 +951,23 @@ async function fetchNaverSupplyDemand(
         /<table[^>]*class="type2"[^>]*>([\s\S]*?)<\/table>/g,
       );
       const target = tableMatch?.[1] ?? tableMatch?.[0];
-      if (!target) break;
+      if (!target) {
+        console.warn(`[supplyDemand ${code}] page ${page}: no type2 table found`);
+        break;
+      }
       parseTableRows(target, rows);
-    } catch {
+    } catch (err) {
+      console.warn(`[supplyDemand ${code}] page ${page} error:`, (err as Error).message);
       break;
     } finally {
       clearTimeout(timer);
     }
   }
 
-  if (rows.length < 3) return null;
+  if (rows.length < 3) {
+    console.warn(`[supplyDemand ${code}] only ${rows.length} rows parsed, need ≥3`);
+    return null;
+  }
 
   const slice5 = rows.slice(0, Math.min(5, rows.length));
   const slice20 = rows.slice(0, Math.min(20, rows.length));

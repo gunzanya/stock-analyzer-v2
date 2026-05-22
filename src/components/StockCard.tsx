@@ -336,9 +336,18 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
       )}
 
       {/* Supply & Demand (Korean stocks only) */}
-      {result.supplyDemand && (
+      {result.supplyDemand ? (
         <div className="px-5 pt-4">
           <SupplyDemandCard data={result.supplyDemand} />
+        </div>
+      ) : /\.(KS|KQ)$/i.test(result.fundamental.ticker) && (
+        <div className="px-5 pt-4">
+          <section className="rounded-xl border border-[#1e293b] bg-[#0a0f1a] p-4">
+            <h3 className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
+              수급 (외인·기관)
+            </h3>
+            <p className="mt-2 text-xs text-slate-500">데이터 없음</p>
+          </section>
         </div>
       )}
 

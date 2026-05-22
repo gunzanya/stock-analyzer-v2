@@ -58,7 +58,8 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
   if (isKoreanTicker) {
     try {
       supplyDemand = await fetchNaverSupplyDemand(fund.ticker);
-    } catch {
+    } catch (err) {
+      console.warn(`[${fund.ticker}] supplyDemand fetch failed:`, (err as Error).message);
       supplyDemand = null;
     }
   }
