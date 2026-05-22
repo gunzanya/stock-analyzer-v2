@@ -7,9 +7,23 @@ import type {
   CanslimKey,
   CanslimResult,
   ClassificationResult,
+  FundamentalData,
   FundamentalScoreResult,
 } from './types.js';
 import { CANSLIM_KEYS, CANSLIM_LABELS } from './canslim.js';
+
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+function isCyclicalPeakSector(fund: FundamentalData): boolean {
+  const ind = fund.industry ?? '';
+  if (/capital markets/i.test(ind)) return true;
+  if (fund.sector === 'Energy' && /oil|gas|petroleum/i.test(ind)) return true;
+  if (fund.sector === 'Basic Materials' && /mining|steel|aluminum|gold|silver|copper|metals/i.test(ind)) return true;
+  if (/auto manufacturers/i.test(ind)) return true;
+  if (/consumer electronics/i.test(ind)) return true;
+  if (/semiconductor|memory/i.test(ind)) return true;
+  return false;
+}
 
 // Universal weights — sums to 100.
 //   C: 분기EPS 12  A: 연간EPS 10  G: 매출성장 10
@@ -33,6 +47,7 @@ function levelOf(score: number): FundamentalScoreResult['level'] {
 export function computeFundamental(
   canslim: CanslimResult,
   classification: ClassificationResult,
+  fund?: FundamentalData | null,
 ): FundamentalScoreResult {
   const scoreByKey: Record<CanslimKey, number> = {} as Record<CanslimKey, number>;
   for (const item of canslim.items) scoreByKey[item.key] = item.score;
@@ -56,10 +71,36 @@ export function computeFundamental(
     finalScore = Math.min(finalScore, Math.max(0, Math.round(classification.confidence)));
   }
 
+  // Peak earnings penalty for cyclical sectors
+  let peakPenalty: { delta: number; reason: string } | null = null;
+  if (fund && isCyclicalPeakSector(fund)) {
+    const eps = fund.epsGrowthYoY;
+    if (isNum(eps) && eps > 0.5) {
+      let base: number;
+      if (eps > 2.0) base = -20;
+      else if (eps > 1.0) base = -15;
+      else base = -10;
+
+      const mitigated =
+        isNum(fund.per) && isNum(fund.forwardPER) &&
+        fund.per > 0 && fund.forwardPER > 0 &&
+        fund.per > fund.forwardPER;
+
+      let delta: number;
+      if (eps > 2.0) delta = mitigated ? -10 : -20;
+      else if (eps > 1.0) delta = mitigated ? -8 : -15;
+      else delta = mitigated ? -5 : -10;
+
+      peakPenalty = { delta, reason: `순환 이익 피크 ${delta}` };
+      finalScore = Math.max(0, finalScore + delta);
+    }
+  }
+
   return {
     score: finalScore,
-    level: classification.uncertain ? 'AVOID' : levelOf(total),
+    level: classification.uncertain ? 'AVOID' : levelOf(finalScore),
     topContributors: top.map(({ contribution: _c, ...rest }) => rest),
     bottomContributors: bottom.map(({ contribution: _c, ...rest }) => rest),
+    peakEarningsPenalty: peakPenalty,
   };
 }

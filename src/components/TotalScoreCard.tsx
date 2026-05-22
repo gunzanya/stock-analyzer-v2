@@ -133,6 +133,11 @@ export function TotalScoreCard({ overall, fundamental, timing }: Props) {
           </ul>
         </div>
       </div>
+      {fundamental.peakEarningsPenalty && (
+        <div className="mt-2 text-[11px] text-amber-400">
+          ⚠️ {fundamental.peakEarningsPenalty.reason}
+        </div>
+      )}
       <TimingBreakdown timing={timing} />
     </section>
   );

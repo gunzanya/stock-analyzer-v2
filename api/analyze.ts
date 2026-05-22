@@ -129,7 +129,7 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     volumeRatio: vr,
     return90d: r90,
   });
-  const fundamentalScore = computeFundamental(canslim, classification);
+  const fundamentalScore = computeFundamental(canslim, classification, fund);
   const adjustedTiming = applyCoherenceFloor(timingScore, fundamentalScore.score);
   const overallScore = computeOverall(fundamentalScore, adjustedTiming, classification.primary);
   const strategy = hasPrices
@@ -154,6 +154,13 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     indicators,
     stockBars,
   });
+  if (fundamentalScore.peakEarningsPenalty) {
+    const pct = fund.epsGrowthYoY != null ? `+${(fund.epsGrowthYoY * 100).toFixed(0)}%` : '';
+    riskFactors.push({
+      severity: 'medium',
+      message: `이익 피크 가능성 (순환 섹터 EPS ${pct})`,
+    });
+  }
 
   // ---- Timing precision analysis (5 sub-signals) ----
   let timingDetail: TimingDetail | null = null;

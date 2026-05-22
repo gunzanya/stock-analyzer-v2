@@ -184,6 +184,7 @@ export interface FundamentalScoreResult {
   level: 'STRONG' | 'WATCH' | 'NEUTRAL' | 'AVOID';
   topContributors: { key: CanslimKey; label: string; score: number; weight: number }[];
   bottomContributors: { key: CanslimKey; label: string; score: number; weight: number }[];
+  peakEarningsPenalty?: { delta: number; reason: string } | null;
 }
 
 // ---- Overall score (weighted blend of fundamental + timing) ----
