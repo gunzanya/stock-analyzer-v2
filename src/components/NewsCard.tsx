@@ -21,8 +21,13 @@ export function NewsCard({ news }: Props) {
               className="group block"
             >
               <p className="text-[13px] text-slate-200 leading-snug group-hover:text-indigo-300 transition-colors line-clamp-2">
-                {item.title}
+                {item.titleKo ?? item.title}
               </p>
+              {item.titleKo && (
+                <p className="mt-0.5 text-[11px] text-slate-500 leading-snug line-clamp-1">
+                  {item.title}
+                </p>
+              )}
               <p className="mt-0.5 text-[10px] text-slate-500">
                 {item.source}{item.source && item.date ? ' · ' : ''}{item.date}
               </p>

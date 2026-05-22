@@ -243,6 +243,7 @@ export interface SupplyDemandData {
 
 export interface NewsItem {
   title: string;
+  titleKo?: string;   // Anthropic-translated Korean headline (US stocks only)
   source: string;
   date: string;       // ISO date or human-readable
   link: string;
