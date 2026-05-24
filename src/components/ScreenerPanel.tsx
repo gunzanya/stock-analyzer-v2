@@ -1,36 +1,28 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import type { ScreenerSummary } from '../lib/screenerTypes.js';
-import { STOCK_TYPE_LABELS } from '../lib/types.js';
 import { LEVEL_KO, SCORE_TEXT, scoreLevel } from './scoreColors.js';
 
 type Row = ScreenerSummary;
 type Status = 'idle' | 'running' | 'done' | 'error';
-type PoolFilter = 'all' | 'large_cap' | 'small_mid' | 'tech' | 'breakout' | 'kr';
+type PoolFilter = 'all' | 'breakout_us' | 'uptrend_us' | 'breakout_kr' | 'uptrend_kr';
 type SortKey = 'overall' | 'fundamental' | 'timing';
 type SortDir = 'asc' | 'desc';
 
 const FILTER_LABELS: Record<PoolFilter, string> = {
   all: '전체',
-  large_cap: '대형주만 ($10B+)',
-  small_mid: '중소형주',
-  tech: '테크',
-  breakout: '🔍 돌파 대기',
-  kr: '🇰🇷 한국',
+  breakout_us: '🔍 돌파대기(US)',
+  uptrend_us: '📈 상승추세(US)',
+  breakout_kr: '🔍 돌파대기(KR)',
+  uptrend_kr: '📈 상승추세(KR)',
 };
 
-// Same grid template for header + rows so columns line up.
-// 종합 / 펀더 / 타이밍 (3 score columns) + 안전 + ⭐.
 const ROW_GRID =
-  'grid grid-cols-[minmax(130px,1.3fr)_minmax(100px,1.1fr)_80px_80px_80px_48px_40px] items-center';
+  'grid grid-cols-[minmax(140px,1.5fr)_80px_80px_80px_40px] items-center';
 
 function tickerHref(t: string): string {
   return `/?ticker=${encodeURIComponent(t)}`;
 }
 
-/** Returns an onClick that:
- *  - lets modifier-clicks / middle-clicks fall through to the browser
- *    (so they open in a new tab from the underlying <a href>)
- *  - intercepts plain left-clicks and runs `inApp` (tab switch) instead. */
 function linkClickHandler(inApp: () => void) {
   return (e: MouseEvent<HTMLAnchorElement>) => {
     if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
@@ -75,14 +67,10 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
 
   function startScan() {
     esRef.current?.close();
-    // Cumulative mode: keep existing rows; new results upsert by ticker.
     setProgress({ completed: 0, total: 0 });
     setErrorMsg(null);
     setStatus('running');
 
-    // Exclude already-scanned tickers so cumulative scans never pull
-    // the same name twice. Cap the string at 200 entries (~1500 chars)
-    // — well under any URL length limit even after URL encoding.
     const excludeList = rows
       .map((r) => r.ticker)
       .filter(Boolean)
@@ -125,13 +113,10 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
       esRef.current = null;
     });
     es.addEventListener('error', () => {
-      // EventSource fires 'error' on completion too; only flag error if we
-      // never received the 'done' event.
       if (es.readyState === EventSource.CLOSED && status === 'running') {
         setStatus('error');
         setErrorMsg('스트림 연결이 끊겼습니다.');
       } else if (es.readyState !== EventSource.OPEN) {
-        // network/server error mid-stream
         setStatus((s) => (s === 'running' ? 'error' : s));
       }
     });
@@ -152,8 +137,9 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
     setErrorMsg(null);
   }
 
-  // Failed rows always sink to the bottom; otherwise sort by the selected
-  // column in the chosen direction.
+  const isBreakoutFilter = filter === 'breakout_us' || filter === 'breakout_kr';
+  const isUptrendFilter = filter === 'uptrend_us' || filter === 'uptrend_kr';
+
   const sorted = [...rows].sort((a, b) => {
     if (!a.ok && b.ok) return 1;
     if (a.ok && !b.ok) return -1;
@@ -165,10 +151,9 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
   });
 
   const filtered = sorted.filter((r) => {
-    if (!r.ok) return !strongOnly && filter !== 'breakout';
-    // Breakout filter: only rows the server flagged as 돌파 대기.
-    if (filter === 'breakout' && !r.breakoutReady) return false;
-    // Strong-buy: overall 70+ AND timing 50+ (timing is 0-100 here, rescaled).
+    if (!r.ok) return !strongOnly && !isBreakoutFilter && !isUptrendFilter;
+    if (isBreakoutFilter && !r.breakoutReady) return false;
+    if (isUptrendFilter && !r.uptrendConfirmed) return false;
     if (strongOnly && ((r.overall ?? 0) < 70 || (r.timing ?? 0) < 50)) return false;
     if (hideSafetyTriggered && r.safetyTriggered) return false;
     return true;
@@ -305,13 +290,12 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
 
       {filtered.length > 0 && (
         <>
-          {/* Desktop / tablet grid (div-based so each row can be a real <a>) */}
+          {/* Desktop grid */}
           <div className="hidden sm:block rounded-2xl border border-[#1e293b] bg-[#0f172a] overflow-hidden">
             <div
               className={`${ROW_GRID} bg-[#1e293b]/40 text-[11px] uppercase tracking-wider text-slate-400`}
             >
-              <div className="px-3 py-2 font-medium">티커</div>
-              <div className="px-3 py-2 font-medium">유형</div>
+              <div className="px-3 py-2 font-medium">종목명</div>
               <SortHeader
                 label="종합"
                 active={sortKey === 'overall'}
@@ -330,11 +314,10 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
                 dir={sortDir}
                 onClick={() => toggleSort('timing')}
               />
-              <div className="px-3 py-2 font-medium text-center">안전</div>
               <div className="px-3 py-2 font-medium" />
             </div>
             {filtered.map((r) => (
-              <Row
+              <RowItem
                 key={r.ticker}
                 row={r}
                 isFavorite={favorites.includes(r.ticker)}
@@ -396,13 +379,7 @@ function SortHeader({
   );
 }
 
-function typeBadge(primary: ScreenerSummary['primary']) {
-  if (!primary) return '—';
-  const { emoji, ko } = STOCK_TYPE_LABELS[primary];
-  return `${emoji} ${ko}`;
-}
-
-function Row({
+function RowItem({
   row,
   isFavorite,
   onToggleFavorite,
@@ -431,13 +408,13 @@ function Row({
       className={`${ROW_GRID} border-t border-[#1e293b] hover:bg-[#1e293b]/30 transition-colors no-underline text-inherit`}
     >
       <div className="px-3 py-2">
-        <div className="font-mono font-semibold text-slate-100">{row.ticker}</div>
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono font-semibold text-slate-100">{row.ticker}</span>
+          {row.safetyTriggered && <span title="안전장치 발동" className="text-xs">🚨</span>}
+        </div>
         <div className="text-[10px] text-slate-500 truncate max-w-[180px]">
           {row.name ?? ''}
         </div>
-      </div>
-      <div className="px-3 py-2 text-xs text-slate-200">
-        {row.uncertain ? '❓ 불확실' : typeBadge(row.primary)}
       </div>
       <div className={`px-3 py-2 text-right font-mono font-semibold ${SCORE_TEXT[overallLevel]}`}>
         {Math.round(row.overall ?? 0)}
@@ -450,15 +427,6 @@ function Row({
       </div>
       <div className={`px-3 py-2 text-right font-mono font-semibold ${SCORE_TEXT[timingLevel]}`}>
         {Math.round(row.timing ?? 0)}
-      </div>
-      <div className="px-3 py-2 text-center">
-        {row.safetyTriggered ? (
-          <span className="text-red-400 text-base" title="안전장치 발동">
-            🚨
-          </span>
-        ) : (
-          <span className="text-slate-600">·</span>
-        )}
       </div>
       <div className="px-3 py-2 text-center">
         <button
@@ -498,6 +466,7 @@ function MobileCard({
     );
   }
   const overallLevel = scoreLevel(row.overall ?? 0);
+  const fundLevel = scoreLevel(row.fundamental ?? 0);
   const timingLevel = scoreLevel(row.timing ?? 0);
   return (
     <a
@@ -512,9 +481,6 @@ function MobileCard({
             {row.safetyTriggered && <span title="안전장치 발동">🚨</span>}
           </div>
           <p className="text-[11px] text-slate-500 truncate">{row.name ?? ''}</p>
-          <p className="text-xs text-slate-300 mt-1">
-            {row.uncertain ? '❓ 불확실' : typeBadge(row.primary)}
-          </p>
         </div>
         <button
           type="button"
@@ -537,6 +503,12 @@ function MobileCard({
           </span>
           <span className="text-slate-500 ml-1">
             ({row.overallLevel ? LEVEL_KO[row.overallLevel] : ''})
+          </span>
+        </div>
+        <div>
+          <span className="text-slate-500">펀더 </span>
+          <span className={`font-mono font-semibold ${SCORE_TEXT[fundLevel]}`}>
+            {Math.round(row.fundamental ?? 0)}
           </span>
         </div>
         <div>

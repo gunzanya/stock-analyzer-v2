@@ -1,16 +1,15 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { analyzeOne } from './analyze.js';
-import { fetchScreenerPool, type ScreenerFilter } from './fetchStock.js';
+import { fetchScreenerPool } from './fetchStock.js';
 import { SCREENER_POOL } from '../src/lib/screenerPool.js';
 import { SP500 } from '../src/lib/sp500.js';
 import { KR_TICKERS } from '../src/lib/krStocks.js';
 import type { AnalysisResult } from '../src/lib/types.js';
 import type { ScreenerSummary } from '../src/lib/screenerTypes.js';
 
+type ScreenFilter = 'all' | 'breakout_us' | 'uptrend_us' | 'breakout_kr' | 'uptrend_kr';
+
 const DEFAULT_N = 20;
-// Conservative pacing: 3 workers + 500ms post-analysis delay + 429 retry.
-// Stability over speed — n=20/50 fits comfortably in the 60s Vercel budget;
-// n=100 may exceed it under heavy load and end as a partial stream.
 const CONCURRENCY = 3;
 const CONCURRENCY_KR = 2;
 const INTER_TICKER_DELAY_MS = 500;
@@ -28,29 +27,16 @@ function is429(err: unknown): boolean {
   return /\b429\b|Too Many Requests/i.test(msg);
 }
 
-const FILTERS: ReadonlySet<ScreenerFilter> = new Set([
-  'all',
-  'large_cap',
-  'small_mid',
-  'tech',
-  'breakout',
-  'kr',
+const FILTERS: ReadonlySet<ScreenFilter> = new Set([
+  'all', 'breakout_us', 'uptrend_us', 'breakout_kr', 'uptrend_kr',
 ]);
 
-// Whether to augment the Yahoo dynamic pool with the static S&P 500 list.
-// S&P 500 are all large caps, so adding them to small_mid / tech would
-// dilute those filters' intent.
-const MERGE_SP500: Record<ScreenerFilter, boolean> = {
-  all: true,
-  breakout: true,
-  large_cap: true,
-  small_mid: false,
-  tech: false,
-  kr: false,
-};
+function isFilter(v: string | undefined): v is ScreenFilter {
+  return v != null && FILTERS.has(v as ScreenFilter);
+}
 
-function isFilter(v: string | undefined): v is ScreenerFilter {
-  return v != null && FILTERS.has(v as ScreenerFilter);
+function isKrFilter(f: ScreenFilter): boolean {
+  return f === 'breakout_kr' || f === 'uptrend_kr';
 }
 
 /** Fisher–Yates sample (without replacement) of size `n` from `pool`. */
@@ -64,36 +50,23 @@ function sampleFrom(pool: readonly string[], n: number): string[] {
   return copy.slice(0, k);
 }
 
-/** Build the candidate pool: Yahoo dynamic screener union'd with the
- *  static S&P 500 list (for size-agnostic filters). Falls back to the
- *  curated SCREENER_POOL if Yahoo is unreachable so the screener still
- *  works offline. */
-async function buildPool(filter: ScreenerFilter): Promise<string[]> {
-  if (filter === 'kr') {
+async function buildPool(filter: ScreenFilter): Promise<string[]> {
+  if (isKrFilter(filter)) {
     return [...KR_TICKERS];
   }
-  const opts =
-    filter === 'large_cap'
-      ? { minMarketCap: 10e9 }
-      : filter === 'small_mid'
-        ? { maxMarketCap: 10e9 }
-        : {};
-  const staticAugment = MERGE_SP500[filter] ? SP500 : [];
   try {
-    const dynamic = await fetchScreenerPool(filter, opts);
-    const merged = Array.from(new Set([...dynamic, ...staticAugment]));
+    const dynamic = await fetchScreenerPool('all', {});
+    const merged = Array.from(new Set([...dynamic, ...SP500]));
     if (merged.length >= 20) return merged;
-    // Extremely sparse — top up with the curated fallback list too.
     return Array.from(new Set([...merged, ...SCREENER_POOL]));
   } catch {
-    return Array.from(new Set([...staticAugment, ...SCREENER_POOL]));
+    return Array.from(new Set([...SP500, ...SCREENER_POOL]));
   }
 }
 
 function toSummary(ticker: string, r: AnalysisResult): ScreenerSummary {
   const latest = r.priceBars[0]?.close ?? null;
   const timingPct = Math.round((r.timingScore.score / 90) * 100);
-  const breakoutReady = isBreakoutReady(r);
   return {
     ticker,
     ok: true,
@@ -104,33 +77,48 @@ function toSummary(ticker: string, r: AnalysisResult): ScreenerSummary {
     overallLevel: r.overallScore.level,
     fundamental: r.fundamentalScore.score,
     fundamentalLevel: r.fundamentalScore.level,
-    // Rescale timing from its native 0–90 to 0–100 so all three scores
-    // share an axis when the client sorts/filters.
     timing: timingPct,
     timingLevel: r.timingScore.level,
     safetyTriggered: r.safetyGuard.triggered,
-    breakoutReady,
+    breakoutReady: isBreakoutReady(r),
+    uptrendConfirmed: isUptrendConfirmed(r),
     name: r.fundamental.name,
     price: latest,
   };
 }
 
-/** 돌파 대기 — fundamentals strong, timing not yet hot, ADX building, no
- *  obvious distribution or sector blowup. The trade is to enter when ADX
- *  crosses 25 (trend confirms).
- *  Korean tickers use relaxed thresholds (higher volatility market). */
 function isBreakoutReady(r: AnalysisResult): boolean {
   const timingPct = (r.timingScore.score / 90) * 100;
   const adx = r.indicators.adx;
   const isKR = /\.(KS|KQ)$/i.test(r.fundamental.ticker);
-  const fundThreshold = isKR ? 65 : 70;
+  const fundMin = isKR ? 60 : 65;
   const timingMin = isKR ? 20 : 25;
   const timingMax = isKR ? 60 : 55;
-  if (r.fundamentalScore.score < fundThreshold) return false;
+  const adxMin = isKR ? 12 : 15;
+  const adxMax = isKR ? 30 : 25;
+  if (r.fundamentalScore.score < fundMin) return false;
   if (timingPct < timingMin || timingPct > timingMax) return false;
-  if (adx == null || adx < 15 || adx > 25) return false;
+  if (adx == null || adx < adxMin || adx > adxMax) return false;
   if (r.indicators.obvDivergence === true) return false;
   if (r.safetyGuard.triggered) return false;
+  return true;
+}
+
+function isUptrendConfirmed(r: AnalysisResult): boolean {
+  const timingPct = (r.timingScore.score / 90) * 100;
+  const adx = r.indicators.adx;
+  const isKR = /\.(KS|KQ)$/i.test(r.fundamental.ticker);
+  const overallMin = isKR ? 65 : 70;
+  const timingMin = isKR ? 65 : 70;
+  const adxMin = isKR ? 20 : 25;
+  if (r.overallScore.score < overallMin) return false;
+  if (timingPct < timingMin) return false;
+  if (adx == null || adx < adxMin) return false;
+  const { ema20, sma50, sma200 } = r.indicators;
+  const close = r.priceBars[0]?.close;
+  if (close == null || ema20 == null || sma50 == null || sma200 == null) return false;
+  if (!(close > ema20 && ema20 > sma50 && sma50 > sma200)) return false;
+  if (r.indicators.obvDivergence === true) return false;
   return true;
 }
 
@@ -227,7 +215,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const nRaw = req.query.n;
   const n = Math.max(1, Math.min(100, Number(nRaw ?? DEFAULT_N) || DEFAULT_N));
   const filterRaw = req.query.filter as string | undefined;
-  const filter: ScreenerFilter = isFilter(filterRaw) ? filterRaw : 'all';
+  const filter: ScreenFilter = isFilter(filterRaw) ? filterRaw : 'all';
 
   const tickersParam = req.query.tickers as string | undefined;
   let tickers: string[];
@@ -281,7 +269,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     },
   };
 
-  const screenerOpts = filter === 'kr'
+  const screenerOpts = isKrFilter(filter)
     ? { concurrency: CONCURRENCY_KR, interTickerDelay: INTER_TICKER_DELAY_KR_MS }
     : undefined;
 
