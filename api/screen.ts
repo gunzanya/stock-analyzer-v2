@@ -67,6 +67,13 @@ async function buildPool(filter: ScreenFilter): Promise<string[]> {
 function toSummary(ticker: string, r: AnalysisResult): ScreenerSummary {
   const latest = r.priceBars[0]?.close ?? null;
   const timingPct = Math.round((r.timingScore.score / 90) * 100);
+  const ema20 = r.indicators.ema20;
+  const ema20Pct = (ema20 != null && latest != null && ema20 > 0)
+    ? Math.round(((latest - ema20) / ema20) * 1000) / 10
+    : null;
+  const changePct = (r.priceBars.length >= 2 && r.priceBars[1]?.close > 0)
+    ? Math.round(((r.priceBars[0].close - r.priceBars[1].close) / r.priceBars[1].close) * 1000) / 10
+    : null;
   return {
     ticker,
     ok: true,
@@ -85,6 +92,8 @@ function toSummary(ticker: string, r: AnalysisResult): ScreenerSummary {
     uptrendConfirmed: isUptrendConfirmed(r),
     name: r.fundamental.name,
     price: latest,
+    ema20Pct,
+    changePct,
   };
 }
 
@@ -244,17 +253,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const filter: ScreenFilter = isFilter(filterRaw) ? filterRaw : 'all';
 
   const tickersParam = req.query.tickers as string | undefined;
+  const isWatchlist = req.query.mode === 'watchlist';
   let tickers: string[];
   if (tickersParam) {
-    // Explicit tickers (e.g. for testing); validate against the static pool
-    // to keep the surface narrow.
-    tickers = Array.from(
+    const raw = Array.from(
       new Set(
         tickersParam.split(',').map((t) => t.trim().toUpperCase()).filter(Boolean),
       ),
-    )
-      .filter((t) => SCREENER_POOL.includes(t))
-      .slice(0, 40);
+    );
+    tickers = isWatchlist
+      ? raw.slice(0, 100)
+      : raw.filter((t) => SCREENER_POOL.includes(t)).slice(0, 40);
   } else {
     const pool = await buildPool(filter);
     // Cumulative scans: client passes already-analyzed tickers as ?exclude=

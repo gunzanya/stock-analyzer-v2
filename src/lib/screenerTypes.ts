@@ -31,4 +31,6 @@ export interface ScreenerSummary {
   uptrendConfirmed?: boolean;
   name?: string;
   price?: number | null;
+  ema20Pct?: number | null;
+  changePct?: number | null;
 }

@@ -7,8 +7,9 @@ import { StockCard } from './components/StockCard.js';
 import { ScreenerPanel } from './components/ScreenerPanel.js';
 import { TickerInput } from './components/TickerInput.js';
 import { PortfolioPanel } from './components/PortfolioPanel.js';
+import { WatchlistPanel } from './components/WatchlistPanel.js';
 
-type Tab = 'analyze' | 'screener' | 'portfolio';
+type Tab = 'analyze' | 'screener' | 'watchlist' | 'portfolio';
 
 interface CardState {
   ticker: string;
@@ -31,7 +32,7 @@ function parseTickers(input: string): string[] {
 function readURL(): { tab: Tab; ticker: string | null } {
   const params = new URLSearchParams(window.location.search);
   const t = params.get('tab');
-  const tab: Tab = t === 'screener' ? 'screener' : t === 'portfolio' ? 'portfolio' : 'analyze';
+  const tab: Tab = t === 'screener' ? 'screener' : t === 'watchlist' ? 'watchlist' : t === 'portfolio' ? 'portfolio' : 'analyze';
   const ticker = params.get('ticker');
   return { tab, ticker: ticker ? ticker.toUpperCase() : null };
 }
@@ -88,6 +89,7 @@ function App() {
   useEffect(() => {
     const base = 'Stock Analyzer v2';
     if (tab === 'portfolio') document.title = `포트폴리오 - ${base}`;
+    else if (tab === 'watchlist') document.title = `관심종목 - ${base}`;
     else if (tab === 'screener') document.title = `스크리너 - ${base}`;
     else if (cards.length > 0) document.title = `${cards.map((c) => c.ticker).join(', ')} - ${base}`;
     else document.title = base;
@@ -156,6 +158,9 @@ function App() {
             <TabButton active={tab === 'screener'} onClick={() => changeTab('screener')}>
               🎲 스크리너
             </TabButton>
+            <TabButton active={tab === 'watchlist'} onClick={() => changeTab('watchlist')}>
+              ⭐ 관심종목
+            </TabButton>
             <TabButton active={tab === 'portfolio'} onClick={() => changeTab('portfolio')}>
               💼 포트폴리오
             </TabButton>
@@ -204,6 +209,16 @@ function App() {
             setInput(t);
             void runAnalysis(t);
           }} />
+        ) : tab === 'watchlist' ? (
+          <WatchlistPanel
+            favorites={favorites}
+            onToggleFavorite={toggleFavorite}
+            onPickTicker={(t) => {
+              changeTab('analyze');
+              setInput(t);
+              void runAnalysis(t);
+            }}
+          />
         ) : tab === 'screener' ? (
           <ScreenerPanel
             favorites={favorites}
