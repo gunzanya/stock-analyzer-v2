@@ -122,6 +122,9 @@ function isEntryReady(r: AnalysisResult): boolean {
   if (close == null || ema20 == null || ema20 <= 0) return false;
   if (Math.abs((close - ema20) / ema20) > emaPctLimit) return false;
   if (rsi == null || rsi < rsiMin || rsi > rsiMax) return false;
+  const slopeMin = isKR ? 0 : 0.1;
+  const slope = r.timingDetail?.ema20Slope?.slope;
+  if (slope == null || slope <= slopeMin) return false;
   if (obvDivergence === true) return false;
   if (r.safetyGuard.triggered) return false;
   return true;
