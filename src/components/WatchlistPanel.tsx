@@ -4,7 +4,7 @@ import { SCORE_TEXT, scoreLevel } from './scoreColors.js';
 import { loadScoreHistory, saveScoreEntry, type ScoreEntry } from '../lib/scoreHistory.js';
 
 type Status = 'idle' | 'running' | 'done' | 'error';
-type SortKey = 'overall' | 'fundamental' | 'timing' | 'ema20Pct' | 'changePct';
+type SortKey = 'overall' | 'fundamental' | 'timing' | 'ema20Pct' | 'changePct' | 'status';
 type SortDir = 'asc' | 'desc';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -26,10 +26,18 @@ function linkClickHandler(inApp: () => void) {
 
 function statusOf(r: ScreenerSummary): { icon: string; label: string } {
   if (r.entryReady) return { icon: '🎯', label: '진입 적기' };
-  if (r.uptrendConfirmed) return { icon: '📈', label: '상승 추세' };
   if (r.breakoutReady) return { icon: '🔍', label: '돌파 대기' };
+  if (r.uptrendConfirmed) return { icon: '📈', label: '상승 추세' };
   if (r.safetyTriggered) return { icon: '⚠️', label: '주의' };
   return { icon: '—', label: '' };
+}
+
+function statusRank(r: ScreenerSummary): number {
+  if (r.entryReady) return 1;
+  if (r.breakoutReady) return 2;
+  if (r.uptrendConfirmed) return 3;
+  if (r.safetyTriggered) return 4;
+  return 5;
 }
 
 interface Props {
@@ -130,6 +138,10 @@ export function WatchlistPanel({ favorites, onToggleFavorite, onPickTicker }: Pr
   const sorted = [...rows].sort((a, b) => {
     if (!a.ok && b.ok) return 1;
     if (a.ok && !b.ok) return -1;
+    if (sortKey === 'status') {
+      const diff = statusRank(a) - statusRank(b);
+      return sortDir === 'desc' ? diff : -diff;
+    }
     const valOf = (r: ScreenerSummary): number => {
       if (sortKey === 'overall') return r.overall ?? -1;
       if (sortKey === 'fundamental') return r.fundamental ?? -1;
@@ -202,7 +214,7 @@ export function WatchlistPanel({ favorites, onToggleFavorite, onPickTicker }: Pr
               <SortHeader label="펀더" active={sortKey === 'fundamental'} dir={sortDir} onClick={() => toggleSort('fundamental')} />
               <SortHeader label="타이밍" active={sortKey === 'timing'} dir={sortDir} onClick={() => toggleSort('timing')} />
               <SortHeader label="EMA20" active={sortKey === 'ema20Pct'} dir={sortDir} onClick={() => toggleSort('ema20Pct')} />
-              <div className="px-2 py-2 font-medium text-center">상태</div>
+              <SortHeader label="상태" active={sortKey === 'status'} dir={sortDir} onClick={() => toggleSort('status')} center />
             </div>
             {sorted.map(r => (
               <WatchRow
@@ -233,12 +245,12 @@ export function WatchlistPanel({ favorites, onToggleFavorite, onPickTicker }: Pr
   );
 }
 
-function SortHeader({ label, active, dir, onClick }: {
-  label: string; active: boolean; dir: SortDir; onClick: () => void;
+function SortHeader({ label, active, dir, onClick, center }: {
+  label: string; active: boolean; dir: SortDir; onClick: () => void; center?: boolean;
 }) {
   const arrow = active ? (dir === 'desc' ? '▼' : '▲') : '↕';
   return (
-    <div className="px-2 py-2 font-medium text-right">
+    <div className={`px-2 py-2 font-medium ${center ? 'text-center' : 'text-right'}`}>
       <button
         type="button"
         onClick={onClick}
