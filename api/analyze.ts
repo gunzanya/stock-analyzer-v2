@@ -12,6 +12,7 @@ import {
   return30d,
   return90d,
   relativeStrength,
+  rsi as rsiOf,
   rsiDivergence as rsiDivergenceOf,
   sma,
   supportResistanceClusters,
@@ -110,6 +111,7 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
   const r30 = hasPrices ? return30d(stockBars) : null;
   const r90 = hasPrices ? return90d(stockBars) : null;
   const r1y = hasPrices ? return1y(stockBars) : null;
+  const rsiVal = hasPrices ? rsiOf(stockBars, 14) : null;
   const ema20 = hasPrices ? ema(stockBars, 20) : null;
   const sma50 = hasPrices ? sma(stockBars, 50) : null;
   const sma200 = hasPrices ? sma(stockBars, 200) : null;
@@ -123,6 +125,7 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     return90d: r90,
     return1y: r1y,
     subIndustryEtf: benchEtf,
+    rsi: rsiVal,
     ema20,
     sma50,
     sma200,

@@ -27,6 +27,7 @@ export interface ScreenerSummary {
    *  divergence, no safety trigger. Set on every row regardless of the
    *  selected filter; client uses it when the breakout filter is active. */
   breakoutReady?: boolean;
+  entryReady?: boolean;
   uptrendConfirmed?: boolean;
   name?: string;
   price?: number | null;

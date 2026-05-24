@@ -270,6 +270,7 @@ export interface AnalysisResult {
     return90d: number | null;
     return1y: number | null;
     subIndustryEtf: string | null;
+    rsi: number | null;
     ema20: number | null;
     sma50: number | null;
     sma200: number | null;

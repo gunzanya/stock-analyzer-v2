@@ -7,7 +7,7 @@ import { KR_TICKERS } from '../src/lib/krStocks.js';
 import type { AnalysisResult } from '../src/lib/types.js';
 import type { ScreenerSummary } from '../src/lib/screenerTypes.js';
 
-type ScreenFilter = 'all' | 'breakout_us' | 'uptrend_us' | 'breakout_kr' | 'uptrend_kr';
+type ScreenFilter = 'all' | 'breakout_us' | 'entry_us' | 'uptrend_us' | 'breakout_kr' | 'entry_kr' | 'uptrend_kr';
 
 const DEFAULT_N = 20;
 const CONCURRENCY = 3;
@@ -28,7 +28,7 @@ function is429(err: unknown): boolean {
 }
 
 const FILTERS: ReadonlySet<ScreenFilter> = new Set([
-  'all', 'breakout_us', 'uptrend_us', 'breakout_kr', 'uptrend_kr',
+  'all', 'breakout_us', 'entry_us', 'uptrend_us', 'breakout_kr', 'entry_kr', 'uptrend_kr',
 ]);
 
 function isFilter(v: string | undefined): v is ScreenFilter {
@@ -36,7 +36,7 @@ function isFilter(v: string | undefined): v is ScreenFilter {
 }
 
 function isKrFilter(f: ScreenFilter): boolean {
-  return f === 'breakout_kr' || f === 'uptrend_kr';
+  return f === 'breakout_kr' || f === 'entry_kr' || f === 'uptrend_kr';
 }
 
 /** Fisher–Yates sample (without replacement) of size `n` from `pool`. */
@@ -81,6 +81,7 @@ function toSummary(ticker: string, r: AnalysisResult): ScreenerSummary {
     timingLevel: r.timingScore.level,
     safetyTriggered: r.safetyGuard.triggered,
     breakoutReady: isBreakoutReady(r),
+    entryReady: isEntryReady(r),
     uptrendConfirmed: isUptrendConfirmed(r),
     name: r.fundamental.name,
     price: latest,
@@ -100,6 +101,28 @@ function isBreakoutReady(r: AnalysisResult): boolean {
   if (timingPct < timingMin || timingPct > timingMax) return false;
   if (adx == null || adx < adxMin || adx > adxMax) return false;
   if (r.indicators.obvDivergence === true) return false;
+  if (r.safetyGuard.triggered) return false;
+  return true;
+}
+
+function isEntryReady(r: AnalysisResult): boolean {
+  const timingPct = (r.timingScore.score / 90) * 100;
+  const { adx, ema20, rsi, obvDivergence } = r.indicators;
+  const close = r.priceBars[0]?.close;
+  const isKR = /\.(KS|KQ)$/i.test(r.fundamental.ticker);
+  const fundMin = isKR ? 60 : 65;
+  const timingMin = isKR ? 65 : 70;
+  const adxMin = isKR ? 20 : 25;
+  const emaPctLimit = isKR ? 0.05 : 0.03;
+  const rsiMin = isKR ? 40 : 45;
+  const rsiMax = 65;
+  if (r.fundamentalScore.score < fundMin) return false;
+  if (timingPct < timingMin) return false;
+  if (adx == null || adx < adxMin) return false;
+  if (close == null || ema20 == null || ema20 <= 0) return false;
+  if (Math.abs((close - ema20) / ema20) > emaPctLimit) return false;
+  if (rsi == null || rsi < rsiMin || rsi > rsiMax) return false;
+  if (obvDivergence === true) return false;
   if (r.safetyGuard.triggered) return false;
   return true;
 }

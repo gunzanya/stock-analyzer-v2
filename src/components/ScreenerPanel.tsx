@@ -4,15 +4,17 @@ import { LEVEL_KO, SCORE_TEXT, scoreLevel } from './scoreColors.js';
 
 type Row = ScreenerSummary;
 type Status = 'idle' | 'running' | 'done' | 'error';
-type PoolFilter = 'all' | 'breakout_us' | 'uptrend_us' | 'breakout_kr' | 'uptrend_kr';
+type PoolFilter = 'all' | 'breakout_us' | 'entry_us' | 'uptrend_us' | 'breakout_kr' | 'entry_kr' | 'uptrend_kr';
 type SortKey = 'overall' | 'fundamental' | 'timing';
 type SortDir = 'asc' | 'desc';
 
 const FILTER_LABELS: Record<PoolFilter, string> = {
   all: '전체',
   breakout_us: '🔍 돌파대기(US)',
+  entry_us: '🎯 진입적기(US)',
   uptrend_us: '📈 상승추세(US)',
   breakout_kr: '🔍 돌파대기(KR)',
+  entry_kr: '🎯 진입적기(KR)',
   uptrend_kr: '📈 상승추세(KR)',
 };
 
@@ -138,6 +140,7 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
   }
 
   const isBreakoutFilter = filter === 'breakout_us' || filter === 'breakout_kr';
+  const isEntryFilter = filter === 'entry_us' || filter === 'entry_kr';
   const isUptrendFilter = filter === 'uptrend_us' || filter === 'uptrend_kr';
 
   const sorted = [...rows].sort((a, b) => {
@@ -151,8 +154,9 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
   });
 
   const filtered = sorted.filter((r) => {
-    if (!r.ok) return !strongOnly && !isBreakoutFilter && !isUptrendFilter;
+    if (!r.ok) return !strongOnly && !isBreakoutFilter && !isEntryFilter && !isUptrendFilter;
     if (isBreakoutFilter && !r.breakoutReady) return false;
+    if (isEntryFilter && !r.entryReady) return false;
     if (isUptrendFilter && !r.uptrendConfirmed) return false;
     if (strongOnly && ((r.overall ?? 0) < 70 || (r.timing ?? 0) < 50)) return false;
     if (hideSafetyTriggered && r.safetyTriggered) return false;
