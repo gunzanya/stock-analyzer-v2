@@ -92,6 +92,7 @@ export interface FundamentalData {
   // Sentiment / speculation signals
   shortPercentOfFloat: number | null;
   floatShares: number | null;
+  targetMeanPrice: number | null;
 
   // Meta
   fetchedAt: string;               // ISO timestamp
@@ -278,6 +279,11 @@ export interface AnalysisResult {
   usdKrwRate: number | null; // USD/KRW spot, null on fetch failure
   supplyDemand: SupplyDemandData | null; // Korean stocks only
   news: NewsItem[];
+  targetPriceGap: {
+    targetMeanPrice: number;
+    gapPercent: number;
+    delta: number;
+  } | null;
 }
 
 // ---- Timing precision analysis (5 sub-signals) ----

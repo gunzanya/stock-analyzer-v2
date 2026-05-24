@@ -65,7 +65,7 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
   }
   let news: NewsItem[] = [];
   try {
-    news = await fetchNews(ticker);
+    news = await fetchNews(ticker, fund.name);
   } catch {
     news = [];
   }
@@ -138,6 +138,35 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     return90d: r90,
   });
   const fundamentalScore = computeFundamental(canslim, classification, fund);
+
+  // Target price gap adjustment
+  let targetPriceGap: AnalysisResult['targetPriceGap'] = null;
+  if (fund.targetMeanPrice != null && fund.price != null && fund.price > 0) {
+    const gapPct = ((fund.targetMeanPrice - fund.price) / fund.price) * 100;
+    let delta = 0;
+    if (gapPct >= 30) delta = 5;
+    else if (gapPct >= 15) delta = 3;
+    else if (gapPct >= 0) delta = 0;
+    else delta = -5;
+
+    targetPriceGap = {
+      targetMeanPrice: fund.targetMeanPrice,
+      gapPercent: Math.round(gapPct * 10) / 10,
+      delta,
+    };
+
+    if (delta !== 0) {
+      fundamentalScore.score = Math.max(0, Math.min(100, fundamentalScore.score + delta));
+      if (!classification.uncertain) {
+        fundamentalScore.level =
+          fundamentalScore.score >= 70 ? 'STRONG'
+          : fundamentalScore.score >= 50 ? 'WATCH'
+          : fundamentalScore.score >= 30 ? 'NEUTRAL'
+          : 'AVOID';
+      }
+    }
+  }
+
   const adjustedTiming = applyCoherenceFloor(timingScore, fundamentalScore.score);
   const overallScore = computeOverall(fundamentalScore, adjustedTiming, classification.primary);
   const strategy = hasPrices
@@ -260,6 +289,7 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     usdKrwRate,
     supplyDemand,
     news,
+    targetPriceGap,
   };
 }
 

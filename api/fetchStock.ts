@@ -306,6 +306,7 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
   // ----- Short interest -----
   const shortPercentOfFloat = num(ks?.shortPercentOfFloat);
   const floatShares = num(ks?.floatShares);
+  const targetMeanPrice = num(fd?.targetMeanPrice);
 
   // ----- Sanity: did Yahoo return anything at all? -----
   const sectorVal = (ap?.sector ?? sp?.sector ?? null) as string | null;
@@ -361,6 +362,7 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
 
     shortPercentOfFloat,
     floatShares,
+    targetMeanPrice,
 
     fetchedAt: new Date().toISOString(),
     warnings,
@@ -624,9 +626,18 @@ function fillToFive(filtered: NewsItem[], raw: NewsItem[], isKorean: boolean): N
   return filtered;
 }
 
-async function fetchYahooNews(ticker: string): Promise<NewsItem[]> {
+function extractCoreName(name: string): string {
+  return name
+    .replace(/\b(Inc\.?|Corp\.?|Corporation|Ltd\.?|Limited|PLC|Co\.?|Company|Group|Holdings?|Enterprises?|International|Technologies|Technology|Systems|Solutions|Services|Brands?|&)\b/gi, '')
+    .replace(/[,.\-()]/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+async function fetchYahooNews(ticker: string, companyName?: string): Promise<NewsItem[]> {
   try {
-    const result = await yahooFinance.search(ticker, { newsCount: 20, quotesCount: 0 }, { validateResult: false });
+    const query = companyName ? `${ticker} ${extractCoreName(companyName)}` : ticker;
+    const result = await yahooFinance.search(query, { newsCount: 20, quotesCount: 0 }, { validateResult: false });
     const news = (result as any)?.news;
     if (!Array.isArray(news)) return [];
     const raw: NewsItem[] = news.map((n: any) => ({
@@ -637,7 +648,20 @@ async function fetchYahooNews(ticker: string): Promise<NewsItem[]> {
         : '',
       link: n.link ?? '',
     })).filter((n: NewsItem) => n.title && n.link);
-    return fillToFive(filterNews(raw, false), raw, false);
+
+    const tickerUp = ticker.toUpperCase();
+    const coreWords = companyName
+      ? extractCoreName(companyName).toLowerCase().split(/\s+/).filter(w => w.length >= 3)
+      : [];
+    const relevant = raw.filter(n => {
+      const tUp = n.title.toUpperCase();
+      if (tUp.includes(tickerUp)) return true;
+      if (coreWords.some(w => n.title.toLowerCase().includes(w))) return true;
+      return false;
+    });
+
+    const source = relevant.length >= 2 ? relevant : raw;
+    return fillToFive(filterNews(source, false), source, false);
   } catch {
     return [];
   }
@@ -671,12 +695,12 @@ async function fetchNaverNews(ticker: string): Promise<NewsItem[]> {
   }
 }
 
-export async function fetchNews(ticker: string): Promise<NewsItem[]> {
+export async function fetchNews(ticker: string, companyName?: string): Promise<NewsItem[]> {
   const isKorean = /\.(KS|KQ)$/i.test(ticker);
   if (isKorean) {
     return fetchNaverNews(ticker);
   }
-  return fetchYahooNews(ticker);
+  return fetchYahooNews(ticker, companyName);
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

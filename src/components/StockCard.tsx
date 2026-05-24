@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type {
   AnalysisResult,
   ClassificationResult,
@@ -20,6 +20,7 @@ import { TimingDetailCard } from './TimingDetailCard.js';
 import { AddToPortfolioModal } from './AddToPortfolioModal.js';
 import { SupplyDemandCard } from './SupplyDemandCard.js';
 import { NewsCard } from './NewsCard.js';
+import { saveScoreEntry, loadScoreHistory, type ScoreEntry } from '../lib/scoreHistory.js';
 
 const STOCK_TYPE_ORDER: StockType[] = [
   'FAST_GROWER',
@@ -82,6 +83,8 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
   const f = result.fundamental;
   const cls = result.classification;
   const ind = result.indicators;
+
+  const [scoreHistory, setScoreHistory] = useState<ScoreEntry[]>([]);
 
   const nativeCurrency: DisplayCurrency =
     (f.currency ?? 'USD').toUpperCase() === 'KRW' ? 'KRW' : 'USD';
@@ -148,6 +151,16 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
     displayCurrency,
     fxRate,
   );
+  useEffect(() => {
+    saveScoreEntry(
+      f.ticker,
+      overallScore.score,
+      fundamentalScore.score,
+      result.timingScore.score,
+    );
+    setScoreHistory(loadScoreHistory(f.ticker));
+  }, [f.ticker, overallScore.score, fundamentalScore.score, result.timingScore.score]);
+
   const canToggleFx = nativeCurrency === 'USD' || nativeCurrency === 'KRW';
 
   return (
@@ -191,6 +204,28 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
             <p className="text-[11px] text-slate-500 mt-0.5">
               {f.sector ?? '—'} · {f.industry ?? '—'}
             </p>
+            {result.targetPriceGap && (
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                목표가{' '}
+                {nativeCurrency === 'KRW'
+                  ? `₩${Math.round(result.targetPriceGap.targetMeanPrice).toLocaleString()}`
+                  : `$${result.targetPriceGap.targetMeanPrice.toFixed(2)}`}
+                {' '}(괴리{' '}
+                <span className={
+                  result.targetPriceGap.gapPercent >= 15 ? 'text-emerald-400'
+                  : result.targetPriceGap.gapPercent < 0 ? 'text-red-400'
+                  : 'text-slate-400'
+                }>
+                  {result.targetPriceGap.gapPercent > 0 ? '+' : ''}
+                  {result.targetPriceGap.gapPercent.toFixed(1)}%
+                </span>)
+                {result.targetPriceGap.delta !== 0 && (
+                  <span className={result.targetPriceGap.delta > 0 ? 'text-emerald-400 ml-1' : 'text-red-400 ml-1'}>
+                    펀더 {result.targetPriceGap.delta > 0 ? '+' : ''}{result.targetPriceGap.delta}
+                  </span>
+                )}
+              </p>
+            )}
           </div>
           <div className="text-right flex-shrink-0">
             <div className="flex items-center justify-end gap-1.5">
@@ -328,6 +363,13 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
           timing={result.timingScore}
         />
       </div>
+
+      {/* Score history strip (14-day) */}
+      {scoreHistory.length >= 2 && (
+        <div className="px-5 pt-2">
+          <ScoreHistoryStrip history={scoreHistory} />
+        </div>
+      )}
 
       {/* Timing precision analysis */}
       {result.timingDetail && (
@@ -496,6 +538,44 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
         </section>
       )}
     </article>
+  );
+}
+
+function ScoreHistoryStrip({ history }: { history: ScoreEntry[] }) {
+  const streak80 = (() => {
+    let count = 0;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].overall >= 80) count++;
+      else break;
+    }
+    return count;
+  })();
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] text-slate-500 shrink-0">14일 추이</span>
+      <div className="flex items-end gap-px">
+        {history.map((h, i) => (
+          <div
+            key={i}
+            className={`w-2.5 rounded-sm ${
+              h.overall >= 70
+                ? 'bg-emerald-500'
+                : h.overall >= 60
+                  ? 'bg-amber-400'
+                  : h.overall >= 50
+                    ? 'bg-slate-400'
+                    : 'bg-red-500'
+            }`}
+            style={{ height: `${Math.max(4, (h.overall / 100) * 20)}px` }}
+            title={`${h.date}: 종합 ${h.overall} / 펀더 ${h.fundamental} / 타이밍 ${h.timing}`}
+          />
+        ))}
+      </div>
+      {streak80 >= 3 && (
+        <span className="text-[10px] text-emerald-400">{streak80}일 연속 80+</span>
+      )}
+    </div>
   );
 }
 

@@ -166,11 +166,14 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
       });
     } else if (dist > 0.10) {
       if (near52wHigh && primaryType !== 'SPECULATIVE') {
-        gains.push({ reason: `EMA20 +${pct.toFixed(1)}% (과이격이나 52주 고점 90%+ → 면제)`, delta: 0 });
+        deductions.push({
+          reason: `EMA20 +${pct.toFixed(1)}% (>10% 과이격, 52주 고점 90%+ 감경) → -5`,
+          delta: -5,
+        });
       } else {
         deductions.push({
-          reason: `EMA20 +${pct.toFixed(1)}% (>10% 과이격) → -5`,
-          delta: -5,
+          reason: `EMA20 +${pct.toFixed(1)}% (>10% 과이격) → -10`,
+          delta: -10,
         });
       }
     } else if (dist > 0.05) {
@@ -500,6 +503,22 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
       reason: `감점 총합 cap (-30 한계, 원래 ${rawDeductionSum})`,
       delta: offset,
     });
+  }
+
+  // ---- Governance: trend factor cap (55% of total positive gains) ----
+  const TREND_PATTERNS = [/^ADX /, /^RS /, /이평선 기울기 정렬/, /EMA20 기울기/, /모멘텀 가속/];
+  const isTrendGain = (reason: string) => TREND_PATTERNS.some(p => p.test(reason));
+  const trendGainSum = gains.filter(g => g.delta > 0 && isTrendGain(g.reason)).reduce((a, g) => a + g.delta, 0);
+  const totalPositiveGains = gains.filter(g => g.delta > 0).reduce((a, g) => a + g.delta, 0);
+  if (totalPositiveGains > 0) {
+    const trendCap = Math.round(totalPositiveGains * 0.55);
+    if (trendGainSum > trendCap) {
+      const excess = trendGainSum - trendCap;
+      deductions.push({
+        reason: `추세 팩터 쏠림 캡 (추세 가점 ${trendGainSum} > 전체 ${totalPositiveGains}의 55% = ${trendCap}) → -${excess}`,
+        delta: -excess,
+      });
+    }
   }
 
   const gainSum = gains.reduce((a, g) => a + g.delta, 0);
