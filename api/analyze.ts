@@ -64,6 +64,12 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     usdKrwRate = null;
   }
 
+  // Price fallback: if Yahoo's quoteSummary failed (e.g. new IPO with
+  // "internal-error"), fund.price is null — fill from the latest price bar.
+  if (fund.price == null && stockBars.length > 0) {
+    fund.price = stockBars[0].close;
+  }
+
   const classification = classify(fund);
   const isKoreanTicker = /\.(KS|KQ)$/i.test(fund.ticker);
 

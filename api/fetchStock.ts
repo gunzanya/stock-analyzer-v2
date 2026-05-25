@@ -9,6 +9,7 @@ import type {
   SupplyDemandData,
   NewsItem,
 } from '../src/lib/types.js';
+import { KR_STOCKS } from '../src/lib/krStocks.js';
 
 // v3 requires instantiation
 const yahooFinance = new YahooFinance({
@@ -55,16 +56,25 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
   const upper = ticker.trim().toUpperCase();
 
   // Run with validateResult:false so Yahoo schema drift doesn't abort the call.
-  // Then cast to the validated shape; missing fields are handled via optional chaining.
-  const summaryRaw = await yahooFinance.quoteSummary(
-    upper,
-    { modules: [...QUOTE_SUMMARY_MODULES] },
-    { validateResult: false },
-  );
-  const summary = summaryRaw as QuoteSummaryResult | null;
-
-  if (!summary) {
-    throw new Error(`Yahoo returned no data for ${upper}`);
+  // Yahoo occasionally returns `{ error: { code: "internal-error" } }` for
+  // newly-listed Korean tickers when queried from certain regions (Vercel
+  // serverless egress) — yahoo-finance2 surfaces that as a thrown Error with
+  // message "internal-error". Catch it so the analysis can still proceed
+  // using price data (Naver fallback) instead of returning HTTP 502.
+  let summary: QuoteSummaryResult = {} as QuoteSummaryResult;
+  try {
+    const summaryRaw = await yahooFinance.quoteSummary(
+      upper,
+      { modules: [...QUOTE_SUMMARY_MODULES] },
+      { validateResult: false },
+    );
+    if (summaryRaw) {
+      summary = summaryRaw as QuoteSummaryResult;
+    } else {
+      warnings.push(`Yahoo quoteSummary returned null for ${upper}`);
+    }
+  } catch (err) {
+    warnings.push(`Yahoo quoteSummary failed: ${(err as Error).message}`);
   }
 
   const price = summary.price;
@@ -372,6 +382,13 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
   // margin use Naver annual/TTM values (more accurate for Korean stocks).
   // Other fields fill null Yahoo gaps only.
   if (/\.(KS|KQ)$/i.test(upper)) {
+    // Name fallback: when Yahoo's quoteSummary fails (e.g. "internal-error"
+    // for newly-listed tickers), `price?.longName` is undefined and the name
+    // defaults to the bare ticker. Use our static KR_STOCKS roster instead.
+    if (out.name === upper) {
+      const krName = KR_STOCKS.find((s) => s.ticker === upper)?.name;
+      if (krName) out.name = krName;
+    }
     const nv = await fetchNaverData(upper);
     if (nv) {
       if (nv.per != null) out.per = nv.per;
@@ -386,6 +403,9 @@ async function fetchFundamental(ticker: string): Promise<FundamentalData> {
         out.marketCap = nv.marketCapKrw;
       }
     }
+    // Currency / exchange fallback when Yahoo's quoteSummary failed entirely.
+    if (out.currency == null) out.currency = 'KRW';
+    if (out.exchange == null) out.exchange = upper.endsWith('.KS') ? 'KSE' : 'KOE';
   }
 
   return out;
