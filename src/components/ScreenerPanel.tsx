@@ -158,14 +158,14 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
     if (isBreakoutFilter && !r.breakoutReady) return false;
     if (isEntryFilter && !r.entryReady) return false;
     if (isUptrendFilter && !r.uptrendConfirmed) return false;
-    if (strongOnly && ((r.overall ?? 0) < 70 || (r.timing ?? 0) < 50)) return false;
+    if (strongOnly && ((r.overall ?? 0) < 70 || (r.timing ?? 0) < 45)) return false;
     if (hideSafetyTriggered && r.safetyTriggered) return false;
     return true;
   });
 
   const pct = progress.total > 0 ? (progress.completed / progress.total) * 100 : 0;
   const strongCount = rows.filter(
-    (r) => r.ok && (r.overall ?? 0) >= 70 && (r.timing ?? 0) >= 50,
+    (r) => r.ok && (r.overall ?? 0) >= 70 && (r.timing ?? 0) >= 45,
   ).length;
 
   return (
@@ -266,7 +266,7 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
                 onChange={(e) => setStrongOnly(e.target.checked)}
                 className="accent-indigo-500"
               />
-              <span className="text-slate-300">강력 매수만 (종합 70+ & 타이밍 50+)</span>
+              <span className="text-slate-300">강력 매수만 (종합 70+ & 타이밍 45+)</span>
               <span className="text-slate-500">({strongCount})</span>
             </label>
             <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">

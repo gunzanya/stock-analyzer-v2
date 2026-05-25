@@ -14,7 +14,8 @@ export interface ScreenerSummary {
   primary?: AnalysisResult['classification']['primary'];
   display?: string;
   uncertain?: boolean;
-  // Scores are all 0–100 (timing is pre-rescaled from its 0–90 native range).
+  // overall/fundamental are 0–100; timing is raw 0–90 (matches the card
+  // gauge and the breakout/entry/uptrend filter thresholds).
   overall?: number;
   overallLevel?: AnalysisResult['overallScore']['level'];
   fundamental?: number;
@@ -22,10 +23,11 @@ export interface ScreenerSummary {
   timing?: number;
   timingLevel?: AnalysisResult['timingScore']['level'];
   safetyTriggered?: boolean;
-  /** True when the ticker matches the "돌파 대기" pattern: solid fundamentals
-   *  (펀더 ≥70), middling timing (25–55), ADX 15–25 (trend forming), no OBV
-   *  divergence, no safety trigger. Set on every row regardless of the
-   *  selected filter; client uses it when the breakout filter is active. */
+  /** True when the ticker matches the "돌파 대기" pattern: solid fundamentals,
+   *  timing in the pre-진입적기 band, ADX in trend-forming range, RS leading
+   *  the benchmark, close > SMA200, EMA20 distance within a healthy band,
+   *  RSI mid-range, real volume, no OBV divergence, no safety trigger. Set
+   *  on every row; client uses it when the breakout filter is active. */
   breakoutReady?: boolean;
   entryReady?: boolean;
   uptrendConfirmed?: boolean;

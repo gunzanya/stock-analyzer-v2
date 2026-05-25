@@ -66,7 +66,6 @@ async function buildPool(filter: ScreenFilter): Promise<string[]> {
 
 function toSummary(ticker: string, r: AnalysisResult): ScreenerSummary {
   const latest = r.priceBars[0]?.close ?? null;
-  const timingPct = Math.round((r.timingScore.score / 90) * 100);
   const ema20 = r.indicators.ema20;
   const ema20Pct = (ema20 != null && latest != null && ema20 > 0)
     ? Math.round(((latest - ema20) / ema20) * 1000) / 10
@@ -84,7 +83,10 @@ function toSummary(ticker: string, r: AnalysisResult): ScreenerSummary {
     overallLevel: r.overallScore.level,
     fundamental: r.fundamentalScore.score,
     fundamentalLevel: r.fundamentalScore.level,
-    timing: timingPct,
+    // timing exposed in raw 0-90 — matches the card gauge and the filter
+    // thresholds below, so users don't see a different number than the
+    // criterion they filtered on.
+    timing: r.timingScore.score,
     timingLevel: r.timingScore.level,
     safetyTriggered: r.safetyGuard.triggered,
     breakoutReady: isBreakoutReady(r),
@@ -97,36 +99,54 @@ function toSummary(ticker: string, r: AnalysisResult): ScreenerSummary {
   };
 }
 
+// 돌파대기 — 펀더 단단 + 추세 시작 + 진입 위치 합리 + 거래량 살아있음.
+// 타이밍은 raw 0-90; 진입적기(≥70) 직전 구간만 잡는다.
 function isBreakoutReady(r: AnalysisResult): boolean {
-  const timingPct = (r.timingScore.score / 90) * 100;
-  const adx = r.indicators.adx;
   const isKR = /\.(KS|KQ)$/i.test(r.fundamental.ticker);
   const fundMin = isKR ? 60 : 65;
-  const timingMin = isKR ? 20 : 25;
-  const timingMax = isKR ? 60 : 55;
-  const adxMin = isKR ? 12 : 15;
-  const adxMax = isKR ? 30 : 25;
+  const timingMin = isKR ? 40 : 45;
+  const timingMax = 69;
+  const adxMin = isKR ? 15 : 18;
+  const adxMax = 35;
+  const rsMin = isKR ? 55 : 60;
+  const emaDistMin = -0.03;
+  const emaDistMax = isKR ? 0.10 : 0.08;
+  const rsiMin = isKR ? 40 : 45;
+  const rsiMax = 68;
+  const volMin = isKR ? 0.5 : 0.7;
+
   if (r.fundamentalScore.score < fundMin) return false;
-  if (timingPct < timingMin || timingPct > timingMax) return false;
+  const ts = r.timingScore.score;
+  if (ts < timingMin || ts > timingMax) return false;
+  const { adx, rs, rsi, ema20, sma200, volumeRatio, obvDivergence } = r.indicators;
   if (adx == null || adx < adxMin || adx > adxMax) return false;
-  if (r.indicators.obvDivergence === true) return false;
+  if (rs == null || rs < rsMin) return false;
+  const close = r.priceBars[0]?.close;
+  if (close == null) return false;
+  if (sma200 == null || close <= sma200) return false;
+  if (ema20 == null || ema20 <= 0) return false;
+  const dist = (close - ema20) / ema20;
+  if (dist < emaDistMin || dist > emaDistMax) return false;
+  if (rsi == null || rsi < rsiMin || rsi > rsiMax) return false;
+  if (volumeRatio == null || volumeRatio < volMin) return false;
+  if (obvDivergence === true) return false;
   if (r.safetyGuard.triggered) return false;
   return true;
 }
 
 function isEntryReady(r: AnalysisResult): boolean {
-  const timingPct = (r.timingScore.score / 90) * 100;
   const { adx, ema20, rsi, obvDivergence } = r.indicators;
   const close = r.priceBars[0]?.close;
   const isKR = /\.(KS|KQ)$/i.test(r.fundamental.ticker);
   const fundMin = isKR ? 60 : 65;
+  // raw 0-90: KR 65 / US 70 — aligns with entryGrade '진입 적기' threshold.
   const timingMin = isKR ? 65 : 70;
   const adxMin = isKR ? 20 : 25;
   const emaPctLimit = isKR ? 0.05 : 0.03;
   const rsiMin = isKR ? 40 : 45;
   const rsiMax = 65;
   if (r.fundamentalScore.score < fundMin) return false;
-  if (timingPct < timingMin) return false;
+  if (r.timingScore.score < timingMin) return false;
   if (adx == null || adx < adxMin) return false;
   if (close == null || ema20 == null || ema20 <= 0) return false;
   if (Math.abs((close - ema20) / ema20) > emaPctLimit) return false;
@@ -140,14 +160,14 @@ function isEntryReady(r: AnalysisResult): boolean {
 }
 
 function isUptrendConfirmed(r: AnalysisResult): boolean {
-  const timingPct = (r.timingScore.score / 90) * 100;
   const adx = r.indicators.adx;
   const isKR = /\.(KS|KQ)$/i.test(r.fundamental.ticker);
   const overallMin = isKR ? 65 : 70;
+  // raw 0-90 — same alignment as isEntryReady.
   const timingMin = isKR ? 65 : 70;
   const adxMin = isKR ? 20 : 25;
   if (r.overallScore.score < overallMin) return false;
-  if (timingPct < timingMin) return false;
+  if (r.timingScore.score < timingMin) return false;
   if (adx == null || adx < adxMin) return false;
   const { ema20, sma50, sma200 } = r.indicators;
   const close = r.priceBars[0]?.close;
