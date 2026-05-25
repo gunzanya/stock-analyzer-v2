@@ -192,21 +192,44 @@ function isEntryReady(r: AnalysisResult): boolean {
   return true;
 }
 
+// 상승추세 확정 — 추세 정배열 + 펀더/모멘텀/RS 모두 살아있고 과이격·과열 신호 부재.
+// 진입적기보다 timing 문턱은 낮지만(이미 진행 중인 추세), RSI/EMA거리 밴드는
+// 더 넓게 잡고 펀더·RS·거래량·OBV·안전장치·추격주의 게이트를 모두 통과해야 한다.
 function isUptrendConfirmed(r: AnalysisResult): boolean {
-  const adx = r.indicators.adx;
+  const { adx, rs, ema20, rsi, sma50, sma200, volumeRatio, obvDivergence } = r.indicators;
+  const close = r.priceBars[0]?.close;
   const isKR = /\.(KS|KQ)$/i.test(r.fundamental.ticker);
+  const fundMin = isKR ? 60 : 65;
   const overallMin = isKR ? 65 : 70;
-  // raw 0-90 — same alignment as isEntryReady.
-  const timingMin = isKR ? 65 : 70;
+  // raw 0-90
+  const timingMin = isKR ? 60 : 65;
   const adxMin = isKR ? 20 : 25;
+  const rsMin = isKR ? 55 : 60;
+  const emaDistMin = isKR ? -0.07 : -0.05;
+  const emaDistMax = isKR ? 0.18 : 0.15;
+  const rsiMin = isKR ? 45 : 50;
+  const rsiMax = 75;
+  const volMin = isKR ? 0.5 : 0.7;
+
+  if (r.fundamentalScore.score < fundMin) return false;
   if (r.overallScore.score < overallMin) return false;
   if (r.timingScore.score < timingMin) return false;
   if (adx == null || adx < adxMin) return false;
-  const { ema20, sma50, sma200 } = r.indicators;
-  const close = r.priceBars[0]?.close;
-  if (close == null || ema20 == null || sma50 == null || sma200 == null) return false;
-  if (!(close > ema20 && ema20 > sma50 && sma50 > sma200)) return false;
-  if (r.indicators.obvDivergence === true) return false;
+  if (rs == null || rs < rsMin) return false;
+  if (close == null) return false;
+  if (sma50 == null || close <= sma50) return false;
+  if (sma200 == null || close <= sma200) return false;
+  if (ema20 == null || ema20 <= 0) return false;
+  if (!(ema20 > sma50 && sma50 > sma200)) return false;
+  const dist = (close - ema20) / ema20;
+  if (dist < emaDistMin || dist > emaDistMax) return false;
+  if (rsi == null || rsi < rsiMin || rsi > rsiMax) return false;
+  if (volumeRatio == null || volumeRatio < volMin) return false;
+  const slope = r.timingDetail?.ema20Slope?.slope;
+  if (slope == null || slope <= 0) return false;
+  if (obvDivergence === true) return false;
+  if (r.safetyGuard.triggered) return false;
+  if (r.riskFactors.some((rk) => rk.message.startsWith('🚨 사이클 상단'))) return false;
   return true;
 }
 
