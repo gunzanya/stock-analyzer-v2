@@ -60,8 +60,9 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
   }
 
   // ---------- Gains (base technical strength) ----------
+  // 진입 위치 중심 재배분: 추세 가점은 EMA20 풀백 가점을 압도하지 않도록 축소.
   if (adxVal != null && adxVal >= 25) {
-    const delta = adxVal >= 35 ? 20 : 15;
+    const delta = adxVal >= 35 ? 15 : 10;
     gains.push({ reason: `ADX ${adxVal.toFixed(0)} → +${delta} (강한 추세)`, delta });
   }
   if (vr != null && vr >= 1.5) {
@@ -70,18 +71,18 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
     gains.push({ reason: `거래량 ${vr.toFixed(2)}x → +5 (평균↑)`, delta: 5 });
   }
   if (rs >= 70) {
-    gains.push({ reason: `RS ${rs.toFixed(0)} (>=70) → +20`, delta: 20 });
+    gains.push({ reason: `RS ${rs.toFixed(0)} (>=70) → +15`, delta: 15 });
   } else if (rs >= 50) {
-    gains.push({ reason: `RS ${rs.toFixed(0)} (>=50) → +15`, delta: 15 });
+    gains.push({ reason: `RS ${rs.toFixed(0)} (>=50) → +10`, delta: 10 });
   }
   // 52-week high proximity
   if (stockBars.length >= 252) {
     const high1y = Math.max(...stockBars.slice(0, 252).map((b) => b.high ?? b.close));
     const distance = high1y > 0 ? stockBars[0].close / high1y : 0;
     if (distance >= 0.95) {
-      gains.push({ reason: `1년 고점 근접 (${(distance * 100).toFixed(0)}%) → +15`, delta: 15 });
+      gains.push({ reason: `1년 고점 근접 (${(distance * 100).toFixed(0)}%) → +10`, delta: 10 });
     } else if (distance >= 0.85) {
-      gains.push({ reason: `1년 고점 85%+ → +10`, delta: 10 });
+      gains.push({ reason: `1년 고점 85%+ → +5`, delta: 5 });
     }
   }
   // Above 50-day SMA
@@ -121,8 +122,8 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
       gains.push({ reason: `RSI ${rsiVal.toFixed(0)} (65-70 중립)`, delta: 0 });
     } else if (rsiVal >= 50) {
       gains.push({
-        reason: `RSI ${rsiVal.toFixed(0)} (50-65 골디락스) → +5`,
-        delta: 5,
+        reason: `RSI ${rsiVal.toFixed(0)} (50-65 골디락스) → +10`,
+        delta: 10,
       });
     } else if (rsiVal >= 30) {
       gains.push({ reason: `RSI ${rsiVal.toFixed(0)} (30-50 중립)`, delta: 0 });
@@ -153,38 +154,64 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
   }
 
   // ---------- EMA20 proximity — pullback support vs. over-extension ----------
+  // Entry-position is the dominant factor: tiered gains for healthy proximity
+  // and tiered deductions for stretched setups. 52w-high relief is halved
+  // (25% of penalty magnitude, vs. the old 50%).
   const ema20 = ema(stockBars, 20);
   const px = stockBars[0]?.close ?? null;
+  let emaDist: number | null = null;
   if (ema20 != null && px != null && ema20 > 0) {
     const dist = (px - ema20) / ema20;
+    emaDist = dist;
     const pct = dist * 100;
     const sign = pct >= 0 ? '+' : '';
-    if (Math.abs(dist) <= 0.02) {
-      gains.push({
-        reason: `EMA20 ${sign}${pct.toFixed(1)}% (±2% 풀백 지지) → +10`,
-        delta: 10,
+    const reliefEligible = near52wHigh && primaryType !== 'SPECULATIVE';
+    const applyRelief = (base: number) =>
+      reliefEligible ? base + Math.ceil(Math.abs(base) * 0.25) : base;
+
+    if (dist > 0.20) {
+      const final = applyRelief(-20);
+      deductions.push({
+        reason: `EMA20 +${pct.toFixed(1)}% (>20% 극단 과이격${reliefEligible ? ', 52주 고점 감경' : ''}) → ${final}`,
+        delta: final,
+      });
+    } else if (dist > 0.15) {
+      const final = applyRelief(-15);
+      deductions.push({
+        reason: `EMA20 +${pct.toFixed(1)}% (15-20% 과이격${reliefEligible ? ', 52주 고점 감경' : ''}) → ${final}`,
+        delta: final,
       });
     } else if (dist > 0.10) {
-      if (near52wHigh && primaryType !== 'SPECULATIVE') {
-        deductions.push({
-          reason: `EMA20 +${pct.toFixed(1)}% (>10% 과이격, 52주 고점 90%+ 감경) → -5`,
-          delta: -5,
-        });
-      } else {
-        deductions.push({
-          reason: `EMA20 +${pct.toFixed(1)}% (>10% 과이격) → -10`,
-          delta: -10,
-        });
-      }
-    } else if (dist > 0.05) {
+      const final = applyRelief(-10);
+      deductions.push({
+        reason: `EMA20 +${pct.toFixed(1)}% (10-15% 과이격${reliefEligible ? ', 52주 고점 감경' : ''}) → ${final}`,
+        delta: final,
+      });
+    } else if (dist > 0.07) {
       gains.push({
-        reason: `EMA20 +${pct.toFixed(1)}% (5-10% 상승 중) → +5`,
+        reason: `EMA20 +${pct.toFixed(1)}% (7-10% 늦은 진입) → +5`,
         delta: 5,
       });
-    } else if (dist > 0.02) {
-      gains.push({ reason: `EMA20 +${pct.toFixed(1)}%`, delta: 0 });
+    } else if (dist > 0.03) {
+      gains.push({
+        reason: `EMA20 +${pct.toFixed(1)}% (3-7% 진입 가능) → +10`,
+        delta: 10,
+      });
+    } else if (dist >= -0.02) {
+      gains.push({
+        reason: `EMA20 ${sign}${pct.toFixed(1)}% (-2%~+3% 최적 풀백 지지) → +20`,
+        delta: 20,
+      });
+    } else if (dist >= -0.05) {
+      gains.push({
+        reason: `EMA20 ${pct.toFixed(1)}% (-5%~-2% 깊은 풀백)`,
+        delta: 0,
+      });
     } else {
-      gains.push({ reason: `EMA20 ${pct.toFixed(1)}% (아래)`, delta: 0 });
+      gains.push({
+        reason: `EMA20 ${pct.toFixed(1)}% (≤-5% 추세 훼손 의심)`,
+        delta: 0,
+      });
     }
   }
 
@@ -232,8 +259,8 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
     const prox = fibProximity(stockBars, fib);
     if (prox.kind === 'near') {
       gains.push({
-        reason: `피보나치 ${prox.level}% 지지 근접 (±${prox.distancePct.toFixed(1)}%) → +5`,
-        delta: 5,
+        reason: `피보나치 ${prox.level}% 지지 근접 (±${prox.distancePct.toFixed(1)}%) → +8`,
+        delta: 8,
       });
     } else if (prox.kind === 'broke_618') {
       deductions.push({
@@ -457,8 +484,8 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
   const nearSupport = srClusters.find((c) => c.type === 'support' && c.distancePct < 3);
   if (nearSupport) {
     gains.push({
-      reason: `${nearSupport.sources.join('+')} 지지 클러스터 근접 (${nearSupport.distancePct.toFixed(1)}%) → +5`,
-      delta: 5,
+      reason: `${nearSupport.sources.join('+')} 지지 클러스터 근접 (${nearSupport.distancePct.toFixed(1)}%) → +10`,
+      delta: 10,
     });
   }
 
@@ -483,11 +510,23 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
     deductions.push({ reason: `OBV 다이버전스 (가격↑ OBV↓) → -15`, delta: -15 });
   }
   if (r30 != null && r30 > 0.20) {
-    if (near52wHigh && primaryType !== 'SPECULATIVE') {
-      deductions.push({ reason: `30일 +${(r30 * 100).toFixed(0)}% 급등 → -5 (52주 고점 90%+ 감경)`, delta: -5 });
-    } else {
-      deductions.push({ reason: `30일 +${(r30 * 100).toFixed(0)}% 급등 → -10 (눌림 위험)`, delta: -10 });
+    const reliefEligible = near52wHigh && primaryType !== 'SPECULATIVE';
+    const applyRelief = (base: number) =>
+      reliefEligible ? base + Math.ceil(Math.abs(base) * 0.25) : base;
+    let base = -8;
+    let band = '20-30%';
+    if (r30 > 0.50) {
+      base = -18;
+      band = '>50%';
+    } else if (r30 > 0.30) {
+      base = -12;
+      band = '30-50%';
     }
+    const final = applyRelief(base);
+    deductions.push({
+      reason: `30일 +${(r30 * 100).toFixed(0)}% 급등 (${band}${reliefEligible ? ', 52주 고점 감경' : ''}) → ${final}`,
+      delta: final,
+    });
   }
   // Sector-lag deduction tightened — only fire on clear underperformance
   if (excess != null && excess < -0.15) {
@@ -524,6 +563,17 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
   const gainSum = gains.reduce((a, g) => a + g.delta, 0);
   const deductionSum = deductions.reduce((a, d) => a + d.delta, 0);
   let score = Math.max(0, Math.min(MAX_SCORE, gainSum + deductionSum));
+
+  // Chase cap — EMA20 +20% AND 30일 +40% = pure chase setup, timing ≤ 60
+  // regardless of how many strong signals it accumulated. Pairs with
+  // analyze.ts's chase risk factor (UI flips to "추격주의" entry label).
+  if (emaDist != null && emaDist > 0.20 && r30 != null && r30 > 0.40 && score > 60) {
+    deductions.push({
+      reason: `EMA20 +${(emaDist * 100).toFixed(0)}% + 30일 +${(r30 * 100).toFixed(0)}% → 추격 캡 60 (${score} → 60)`,
+      delta: 60 - score,
+    });
+    score = 60;
+  }
 
   // ADX-based soft cap: without a confirmed trend, timing can't score very high.
   const adxCap =

@@ -262,20 +262,30 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     });
   }
 
-  // Chase warning — peak earnings + sharp recent run + stretched above EMA20.
-  // Surfaces both as a high-severity risk and as an "추격주의" entry grade
-  // (UI derives the override from this message).
-  const chaseConditions =
+  // Chase warning — two paths:
+  //   (A) peak earnings + sharp 30d + light EMA stretch (cyclical top of cycle)
+  //   (B) heavy EMA stretch (>+20%) + sharp 30d (>+40%) — pure chase regardless
+  //       of fundamentals; pairs with the timing cap in entryScore.ts.
+  // Surfaces as a high-severity risk; UI derives the "추격주의" entry grade
+  // from the message prefix.
+  const has30dSurge = indicators.return30d != null && indicators.return30d > 0.4;
+  const emaStretchPct =
+    indicators.ema20 != null && fund.price != null && indicators.ema20 > 0
+      ? (fund.price - indicators.ema20) / indicators.ema20
+      : null;
+  const pathA =
     fundamentalScore.peakEarningsPenalty != null &&
-    indicators.return30d != null && indicators.return30d > 0.4 &&
-    indicators.ema20 != null && fund.price != null &&
-    fund.price > indicators.ema20 * 1.10;
-  if (chaseConditions) {
+    has30dSurge &&
+    emaStretchPct != null && emaStretchPct > 0.10;
+  const pathB =
+    has30dSurge && emaStretchPct != null && emaStretchPct > 0.20;
+  if (pathA || pathB) {
     const r30 = (indicators.return30d! * 100).toFixed(0);
-    const stretch = (((fund.price! / indicators.ema20!) - 1) * 100).toFixed(0);
+    const stretch = (emaStretchPct! * 100).toFixed(0);
+    const tag = pathA ? '이익피크 + ' : '';
     riskFactors.unshift({
       severity: 'high',
-      message: `🚨 사이클 상단 추격 위험 — 이익피크 + 30일 +${r30}% + EMA20 대비 +${stretch}%`,
+      message: `🚨 사이클 상단 추격 위험 — ${tag}30일 +${r30}% + EMA20 대비 +${stretch}%`,
     });
   }
 
