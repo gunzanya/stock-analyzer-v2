@@ -107,13 +107,16 @@ function isBreakoutReady(r: AnalysisResult): boolean {
   const timingMin = isKR ? 40 : 45;
   const timingMax = 69;
   const adxMin = isKR ? 15 : 18;
-  const adxMax = 35;
+  const adxMax = isKR ? 35 : 38;
   const rsMin = isKR ? 55 : 60;
   const emaDistMin = -0.03;
   const emaDistMax = isKR ? 0.10 : 0.08;
   const rsiMin = isKR ? 40 : 45;
   const rsiMax = 68;
-  const volMin = isKR ? 0.5 : 0.7;
+  const volMinHard = isKR ? 0.5 : 0.7;
+  // US만: 최적 풀백(-2~+3%) + RSI 골디(50-65)일 때 거래량 하한 0.5까지 허용.
+  // 풀백 자리에서는 거래량이 마르는 게 자연스러우므로.
+  const volMinSoft = 0.5;
 
   if (r.fundamentalScore.score < fundMin) return false;
   const ts = r.timingScore.score;
@@ -128,7 +131,13 @@ function isBreakoutReady(r: AnalysisResult): boolean {
   const dist = (close - ema20) / ema20;
   if (dist < emaDistMin || dist > emaDistMax) return false;
   if (rsi == null || rsi < rsiMin || rsi > rsiMax) return false;
-  if (volumeRatio == null || volumeRatio < volMin) return false;
+  if (volumeRatio == null) return false;
+  const inOptimalPullback =
+    !isKR && dist >= -0.02 && dist <= 0.03 && rsi >= 50 && rsi <= 65;
+  const volOk =
+    volumeRatio >= volMinHard ||
+    (inOptimalPullback && volumeRatio >= volMinSoft);
+  if (!volOk) return false;
   if (obvDivergence === true) return false;
   if (r.safetyGuard.triggered) return false;
   return true;
