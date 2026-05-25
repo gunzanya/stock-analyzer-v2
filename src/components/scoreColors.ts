@@ -37,3 +37,27 @@ export const LEVEL_KO: Record<'STRONG' | 'WATCH' | 'NEUTRAL' | 'AVOID', string> 
   NEUTRAL: '중립',
   AVOID: '회피',
 };
+
+// Entry grade — independent of fundamental level. Derived from timingPct
+// (0-100). When chaseWarning fires (peak earnings + 30d spike + EMA20 stretch),
+// override to "추격주의" regardless of how high timing scores.
+export type EntryGradeLevel = 'ready' | 'wait' | 'avoid' | 'danger' | 'chase';
+
+export function entryGrade(
+  timingPct: number,
+  chaseWarning = false,
+): { label: string; level: EntryGradeLevel; textClass: string } {
+  if (chaseWarning) {
+    return { label: '추격주의', level: 'chase', textClass: 'text-orange-400' };
+  }
+  if (timingPct >= 70) {
+    return { label: '진입 적기', level: 'ready', textClass: 'text-emerald-400' };
+  }
+  if (timingPct >= 55) {
+    return { label: '관심/대기', level: 'wait', textClass: 'text-amber-400' };
+  }
+  if (timingPct >= 40) {
+    return { label: '회피', level: 'avoid', textClass: 'text-slate-400' };
+  }
+  return { label: '위험', level: 'danger', textClass: 'text-red-400' };
+}

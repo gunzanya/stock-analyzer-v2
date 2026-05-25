@@ -7,6 +7,7 @@ import type {
 } from '../lib/types.js';
 import { STOCK_TYPE_LABELS } from '../lib/types.js';
 import { computeStrategy } from '../lib/strategy.js';
+import { mixedDisplay } from '../lib/typeWeights.js';
 import { getTypeInsight } from '../lib/typeInsights.js';
 import { TotalScoreCard } from './TotalScoreCard.js';
 import { CanslimBars } from './CanslimBars.js';
@@ -99,6 +100,14 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
   // Scores are always server-computed and type-independent.
   const fundamentalScore = result.fundamentalScore;
   const overallScore = result.overallScore;
+
+  // UI-level display label (X / Y 혼합 when top-2 close).
+  const aiDisplay = cls.uncertain ? cls.display : mixedDisplay(cls);
+  // Chase-warning is surfaced as a high-severity risk message — detect it
+  // here to flip the entry grade label without recomputing thresholds.
+  const chaseWarning = result.riskFactors.some((r) =>
+    r.message.startsWith('🚨 사이클 상단'),
+  );
 
   // Only typeInsight + strategy change with override.
   const { typeInsight, strategy } = useMemo(() => {
@@ -315,7 +324,7 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
                   {STOCK_TYPE_LABELS[override!].ko}
                 </span>
                 <span className="px-2 py-1 rounded-full text-[11px] border border-slate-700 bg-slate-800/40 text-slate-400">
-                  🤖 AI 추천: {cls.display}
+                  🤖 AI 추천: {aiDisplay}
                 </span>
               </>
             ) : (
@@ -327,7 +336,7 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
                       : 'bg-indigo-500/15 border-indigo-700/50 text-indigo-300'
                   }`}
                 >
-                  🤖 AI 추천: {cls.display}
+                  🤖 AI 추천: {aiDisplay}
                 </span>
                 {!cls.uncertain && (
                   <span className="text-[11px] text-slate-500">
@@ -361,6 +370,7 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
           overall={overallScore}
           fundamental={fundamentalScore}
           timing={result.timingScore}
+          chaseWarning={chaseWarning}
         />
       </div>
 

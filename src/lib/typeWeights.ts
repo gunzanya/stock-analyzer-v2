@@ -37,6 +37,22 @@ function formatLabel(t: TypeCandidateScore['type'], ratio?: number): string {
   return ratio != null ? `${emoji} ${ko} ${ratio}%` : `${emoji} ${ko}`;
 }
 
+// UI label: when the runner-up scores ≥50% of the leader's, present as
+// "X / Y 혼합" (no ratios). Otherwise the leader stands alone. Distinct from
+// classify()'s `display` which exposes the underlying blended ratios.
+const MIXED_RATIO_THRESHOLD = 0.5;
+export function mixedDisplay(cls: ClassificationResult): string {
+  if (cls.uncertain) return cls.display;
+  const live = cls.candidates.filter((c) => !c.disqualified);
+  const first = live[0];
+  const second = live[1];
+  if (!first) return cls.display;
+  if (second && first.score > 0 && second.score >= first.score * MIXED_RATIO_THRESHOLD) {
+    return `${formatLabel(first.type)} / ${formatLabel(second.type)} 혼합`;
+  }
+  return formatLabel(first.type);
+}
+
 function resort(cands: TypeCandidateScore[], preferredOnTie: StockType | null) {
   cands.sort((a, b) => {
     if (a.disqualified && !b.disqualified) return 1;

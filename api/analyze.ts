@@ -262,6 +262,23 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     });
   }
 
+  // Chase warning — peak earnings + sharp recent run + stretched above EMA20.
+  // Surfaces both as a high-severity risk and as an "추격주의" entry grade
+  // (UI derives the override from this message).
+  const chaseConditions =
+    fundamentalScore.peakEarningsPenalty != null &&
+    indicators.return30d != null && indicators.return30d > 0.4 &&
+    indicators.ema20 != null && fund.price != null &&
+    fund.price > indicators.ema20 * 1.10;
+  if (chaseConditions) {
+    const r30 = (indicators.return30d! * 100).toFixed(0);
+    const stretch = (((fund.price! / indicators.ema20!) - 1) * 100).toFixed(0);
+    riskFactors.unshift({
+      severity: 'high',
+      message: `🚨 사이클 상단 추격 위험 — 이익피크 + 30일 +${r30}% + EMA20 대비 +${stretch}%`,
+    });
+  }
+
   // ---- Timing precision analysis (5 sub-signals) ----
   let timingDetail: TimingDetail | null = null;
   if (hasPrices) {
