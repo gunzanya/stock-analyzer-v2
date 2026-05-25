@@ -29,6 +29,18 @@ import { getTypeInsight } from '../src/lib/typeInsights.js';
 import { extractRiskFactors } from '../src/lib/riskFactors.js';
 import type { AnalysisResult, TimingDetail, SupplyDemandData, NewsItem } from '../src/lib/types.js';
 
+// Per-block defensive wrapper: a single indicator/scoring throw must never
+// take down the whole analysis. Logs and falls back so newly-listed tickers
+// (e.g. <200 bars → no SMA200) still produce a usable result.
+function safe<T>(label: string, fn: () => T, fallback: T): T {
+  try {
+    return fn();
+  } catch (err) {
+    console.warn(`[analyze] ${label} failed:`, (err as Error).message);
+    return fallback;
+  }
+}
+
 async function analyzeOne(ticker: string): Promise<AnalysisResult> {
   const fund = await fetchFundamental(ticker);
   const benchEtf = resolveBenchmarkEtf(fund);
@@ -71,55 +83,70 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     news = [];
   }
 
-  const hasPrices = stockBars.length >= 50 && benchBars.length >= 50;
+  // Has *any* usable price data — individual indicator guards (e.g. SMA50
+  // needs 50 bars, SMA200 needs 200) decide what they can compute and return
+  // null otherwise. Don't block the whole analysis on a 50-bar minimum since
+  // newly-listed tickers (2025+ IPOs) routinely have less history than that.
+  const hasPrices = stockBars.length > 0 && benchBars.length >= 20;
 
+  const safetyGuardFallback = {
+    triggered: false,
+    reasons: ['price history unavailable'],
+    sectorContext: null,
+    sectorReturn3M: null,
+    stockReturn3M: null,
+    excessVsSector: null,
+  };
   const safetyGuard = hasPrices
-    ? evaluateSafetyGuard({
-        stockBars,
-        benchmarkBars: benchBars,
-        benchmarkLabel: benchEtf,
-      })
-    : {
-        triggered: false,
-        reasons: ['price history unavailable'],
-        sectorContext: null,
-        sectorReturn3M: null,
-        stockReturn3M: null,
-        excessVsSector: null,
-      };
+    ? safe(
+        'safetyGuard',
+        () => evaluateSafetyGuard({
+          stockBars,
+          benchmarkBars: benchBars,
+          benchmarkLabel: benchEtf,
+        }),
+        safetyGuardFallback,
+      )
+    : safetyGuardFallback;
 
+  const timingFallback = {
+    score: 0,
+    gains: [],
+    deductions: [{ reason: '가격 데이터 없음', delta: 0 }],
+    level: 'NEUTRAL' as const,
+  };
   const timingScore = hasPrices
-    ? computeTiming({
-        stockBars,
-        benchmarkBars: benchBars,
-        absoluteMode: isKoreanTicker,
-        primaryType: classification.primary,
-        supplyDemand,
-      })
-    : {
-        score: 0,
-        gains: [],
-        deductions: [{ reason: '가격 데이터 없음', delta: 0 }],
-        level: 'NEUTRAL' as const,
-      };
+    ? safe(
+        'timingScore',
+        () => computeTiming({
+          stockBars,
+          benchmarkBars: benchBars,
+          absoluteMode: isKoreanTicker,
+          primaryType: classification.primary,
+          supplyDemand,
+        }),
+        timingFallback,
+      )
+    : timingFallback;
 
   const rs = hasPrices
-    ? relativeStrength(stockBars, benchBars, { absoluteMode: isKoreanTicker }).rs
+    ? safe('rs', () => relativeStrength(stockBars, benchBars, { absoluteMode: isKoreanTicker }).rs, null)
     : null;
-  const adx = hasPrices ? adxOf(stockBars) : null;
-  const vr = hasPrices ? volumeRatio(stockBars) : null;
-  const r30 = hasPrices ? return30d(stockBars) : null;
-  const r90 = hasPrices ? return90d(stockBars) : null;
-  const r1y = hasPrices ? return1y(stockBars) : null;
-  const rsiVal = hasPrices ? rsiOf(stockBars, 14) : null;
-  const ema20 = hasPrices ? ema(stockBars, 20) : null;
-  const sma50 = hasPrices ? sma(stockBars, 50) : null;
-  const sma200 = hasPrices ? sma(stockBars, 200) : null;
+  const adx = hasPrices ? safe('adx', () => adxOf(stockBars), null) : null;
+  const vr = hasPrices ? safe('volumeRatio', () => volumeRatio(stockBars), null) : null;
+  const r30 = hasPrices ? safe('return30d', () => return30d(stockBars), null) : null;
+  const r90 = hasPrices ? safe('return90d', () => return90d(stockBars), null) : null;
+  const r1y = hasPrices ? safe('return1y', () => return1y(stockBars), null) : null;
+  const rsiVal = hasPrices ? safe('rsi', () => rsiOf(stockBars, 14), null) : null;
+  const ema20 = hasPrices ? safe('ema20', () => ema(stockBars, 20), null) : null;
+  // SMA50/SMA200 return null when bars < period — UI renders these as "—".
+  const sma50 = hasPrices ? safe('sma50', () => sma(stockBars, 50), null) : null;
+  const sma200 = hasPrices ? safe('sma200', () => sma(stockBars, 200), null) : null;
 
   const indicators = {
     rs,
     adx,
-    obvDivergence: hasPrices ? obvBearishDivergence(stockBars) : null,
+    obvDivergence: hasPrices ? safe('obvDivergence', () => obvBearishDivergence(stockBars), null) : null,
     volumeRatio: vr,
     return30d: r30,
     return90d: r90,
@@ -131,16 +158,30 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     sma200,
   };
 
-  const canslim = computeCanslim({
-    fund,
-    stockBars,
-    benchBars,
-    rs,
-    adx,
-    volumeRatio: vr,
-    return90d: r90,
-  });
-  const fundamentalScore = computeFundamental(canslim, classification, fund);
+  const canslim = safe(
+    'canslim',
+    () => computeCanslim({
+      fund,
+      stockBars,
+      benchBars,
+      rs,
+      adx,
+      volumeRatio: vr,
+      return90d: r90,
+    }),
+    { items: [] } as ReturnType<typeof computeCanslim>,
+  );
+  const fundamentalScore = safe(
+    'fundamentalScore',
+    () => computeFundamental(canslim, classification, fund),
+    {
+      score: 50,
+      level: 'NEUTRAL' as const,
+      topContributors: [],
+      bottomContributors: [],
+      peakEarningsPenalty: null,
+    },
+  );
 
   // Target price gap adjustment
   let targetPriceGap: AnalysisResult['targetPriceGap'] = null;
@@ -170,30 +211,43 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     }
   }
 
-  const adjustedTiming = applyCoherenceFloor(timingScore, fundamentalScore.score);
-  const overallScore = computeOverall(fundamentalScore, adjustedTiming, classification.primary);
+  const adjustedTiming = safe(
+    'adjustedTiming',
+    () => applyCoherenceFloor(timingScore, fundamentalScore.score),
+    timingScore,
+  );
+  const overallScore = safe(
+    'overallScore',
+    () => computeOverall(fundamentalScore, adjustedTiming, classification.primary),
+    { score: fundamentalScore.score, level: fundamentalScore.level },
+  );
+  const strategyFallback = {
+    entry: null,
+    stop: null,
+    target1: null,
+    target2: null,
+    riskReward1: null,
+    riskReward2: null,
+    atr14: null,
+    stopRule: '데이터 부족',
+    rationale: '가격 데이터가 부족해 전략을 산출할 수 없습니다.',
+    exitStrategy: '데이터 부족',
+    rrWarning: null,
+  };
   const strategy = hasPrices
-    ? computeStrategy(stockBars, classification)
-    : {
-        entry: null,
-        stop: null,
-        target1: null,
-        target2: null,
-        riskReward1: null,
-        riskReward2: null,
-        atr14: null,
-        stopRule: '데이터 부족',
-        rationale: '가격 데이터가 없어 전략을 산출할 수 없습니다.',
-        exitStrategy: '데이터 부족',
-        rrWarning: null,
-      };
+    ? safe('strategy', () => computeStrategy(stockBars, classification), strategyFallback)
+    : strategyFallback;
   const typeInsight = getTypeInsight(classification.primary);
-  const riskFactors = extractRiskFactors({
-    fund,
-    safety: safetyGuard,
-    indicators,
-    stockBars,
-  });
+  const riskFactors = safe(
+    'riskFactors',
+    () => extractRiskFactors({
+      fund,
+      safety: safetyGuard,
+      indicators,
+      stockBars,
+    }),
+    [],
+  );
   if (fundamentalScore.peakEarningsPenalty) {
     const pct = fund.epsGrowthYoY != null ? `+${(fund.epsGrowthYoY * 100).toFixed(0)}%` : '';
     riskFactors.push({
@@ -205,11 +259,11 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
   // ---- Timing precision analysis (5 sub-signals) ----
   let timingDetail: TimingDetail | null = null;
   if (hasPrices) {
-    const rsiDiv = rsiDivergenceOf(stockBars);
-    const emaSlopeResult = ema20SlopeOf(stockBars);
-    const volPattern = volumePatternOf(stockBars);
-    const atrTrendResult = atrTrendOf(stockBars);
-    const clusters = supportResistanceClusters(stockBars);
+    const rsiDiv = safe('rsiDivergence', () => rsiDivergenceOf(stockBars), 'none' as const);
+    const emaSlopeResult = safe('ema20Slope', () => ema20SlopeOf(stockBars), null);
+    const volPattern = safe('volumePattern', () => volumePatternOf(stockBars), null);
+    const atrTrendResult = safe('atrTrend', () => atrTrendOf(stockBars), null);
+    const clusters = safe('supportResistance', () => supportResistanceClusters(stockBars), []);
 
     const rsiDivDesc =
       rsiDiv === 'bearish'
