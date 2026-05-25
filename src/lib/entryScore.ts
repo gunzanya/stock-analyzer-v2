@@ -28,7 +28,9 @@ import {
 } from './indicators.js';
 
 const MAX_SCORE = 90;
-const MAX_TOTAL_DEDUCTION = -30; // cap on the sum of deductions
+const PENALTY_CAP_NORMAL = -30;       // baseline cap on penalty sum
+const PENALTY_CAP_OVERHEATED = -45;   // relaxed cap when overheated — lets
+                                      //   stretched setups accrue real damage
 
 export interface TimingScoreInputs {
   stockBars: PriceBar[];
@@ -165,7 +167,10 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
     emaDist = dist;
     const pct = dist * 100;
     const sign = pct >= 0 ? '+' : '';
-    const reliefEligible = near52wHigh && primaryType !== 'SPECULATIVE';
+    // Relief is suppressed when stretching exceeds 15% — at that point the
+    // chart is in chase territory regardless of 52w-high context.
+    const reliefEligible =
+      near52wHigh && primaryType !== 'SPECULATIVE' && dist <= 0.15;
     const applyRelief = (base: number) =>
       reliefEligible ? base + Math.ceil(Math.abs(base) * 0.25) : base;
 
@@ -510,7 +515,11 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
     deductions.push({ reason: `OBV 다이버전스 (가격↑ OBV↓) → -15`, delta: -15 });
   }
   if (r30 != null && r30 > 0.20) {
-    const reliefEligible = near52wHigh && primaryType !== 'SPECULATIVE';
+    // Same EMA>+15% guard as the EMA-stretch block — relief vanishes in
+    // chase territory.
+    const reliefEligible =
+      near52wHigh && primaryType !== 'SPECULATIVE' &&
+      (emaDist == null || emaDist <= 0.15);
     const applyRelief = (base: number) =>
       reliefEligible ? base + Math.ceil(Math.abs(base) * 0.25) : base;
     let base = -8;
@@ -533,13 +542,18 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
     deductions.push({ reason: `섹터 대비 ${(excess * 100).toFixed(0)}%p 부진 → -5`, delta: -5 });
   }
 
-  // Cap total deductions at -30 — multiple severe signals shouldn't compound
-  // to drive a fundamentally-OK stock to 0.
+  // Cap total deductions — relaxed to -45 in overheated setups so stretched
+  // names can accrue real damage instead of being shielded by the -30 cap.
+  const overheated =
+    (emaDist != null && emaDist > 0.15) ||
+    (rsiVal != null && rsiVal > 75) ||
+    (r30 != null && r30 > 0.25);
+  const penaltyCap = overheated ? PENALTY_CAP_OVERHEATED : PENALTY_CAP_NORMAL;
   const rawDeductionSum = deductions.reduce((a, d) => a + d.delta, 0);
-  if (rawDeductionSum < MAX_TOTAL_DEDUCTION) {
-    const offset = MAX_TOTAL_DEDUCTION - rawDeductionSum; // positive value
+  if (rawDeductionSum < penaltyCap) {
+    const offset = penaltyCap - rawDeductionSum; // positive value
     deductions.push({
-      reason: `감점 총합 cap (-30 한계, 원래 ${rawDeductionSum})`,
+      reason: `감점 총합 cap (${penaltyCap} 한계${overheated ? ', 과열 완화' : ''}, 원래 ${rawDeductionSum})`,
       delta: offset,
     });
   }
@@ -564,28 +578,38 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
   const deductionSum = deductions.reduce((a, d) => a + d.delta, 0);
   let score = Math.max(0, Math.min(MAX_SCORE, gainSum + deductionSum));
 
-  // Chase cap — EMA20 +20% AND 30일 +40% = pure chase setup, timing ≤ 60
-  // regardless of how many strong signals it accumulated. Pairs with
-  // analyze.ts's chase risk factor (UI flips to "추격주의" entry label).
-  if (emaDist != null && emaDist > 0.20 && r30 != null && r30 > 0.40 && score > 60) {
-    deductions.push({
-      reason: `EMA20 +${(emaDist * 100).toFixed(0)}% + 30일 +${(r30 * 100).toFixed(0)}% → 추격 캡 60 (${score} → 60)`,
-      delta: 60 - score,
-    });
-    score = 60;
+  // Unified timing-cap chain — collect every applicable cap and apply the
+  // most restrictive (lowest). Order doesn't matter; the min wins.
+  const caps: { value: number; reason: string }[] = [];
+  if (emaDist != null && emaDist > 0.20 && r30 != null && r30 > 0.40) {
+    caps.push({ value: 60, reason: `추격 (EMA+${(emaDist * 100).toFixed(0)}% & 30일+${(r30 * 100).toFixed(0)}%)` });
   }
-
-  // ADX-based soft cap: without a confirmed trend, timing can't score very high.
-  const adxCap =
-    adxVal != null && adxVal < 15 ? 60
-      : adxVal != null && adxVal < 20 ? 75
-      : null;
-  if (adxCap != null && score > adxCap) {
-    deductions.push({
-      reason: `ADX ${adxVal!.toFixed(0)} → 타이밍 캡 ${adxCap} 적용 (${score} → ${adxCap})`,
-      delta: adxCap - score,
-    });
-    score = adxCap;
+  if ((emaDist != null && emaDist > 0.20) || (rsiVal != null && rsiVal > 80)) {
+    const parts: string[] = [];
+    if (emaDist != null && emaDist > 0.20) parts.push(`EMA+${(emaDist * 100).toFixed(0)}%`);
+    if (rsiVal != null && rsiVal > 80) parts.push(`RSI ${rsiVal.toFixed(0)}`);
+    caps.push({ value: 60, reason: `극단 과열 (${parts.join(' 또는 ')})` });
+  }
+  if (emaDist != null && emaDist > 0.15 && r30 != null && r30 > 0.25) {
+    caps.push({ value: 65, reason: `강한 과열 (EMA+${(emaDist * 100).toFixed(0)}% & 30일+${(r30 * 100).toFixed(0)}%)` });
+  }
+  if (emaDist != null && emaDist > 0.15 && r30 != null && r30 > 0.20) {
+    caps.push({ value: 70, reason: `과열 (EMA+${(emaDist * 100).toFixed(0)}% & 30일+${(r30 * 100).toFixed(0)}%)` });
+  }
+  if (adxVal != null && adxVal < 15) {
+    caps.push({ value: 60, reason: `ADX ${adxVal.toFixed(0)} 추세 없음` });
+  } else if (adxVal != null && adxVal < 20) {
+    caps.push({ value: 75, reason: `ADX ${adxVal.toFixed(0)} 추세 미약` });
+  }
+  if (caps.length) {
+    const minCap = caps.reduce((m, c) => (c.value < m.value ? c : m));
+    if (score > minCap.value) {
+      deductions.push({
+        reason: `${minCap.reason} → 타이밍 캡 ${minCap.value} (${score} → ${minCap.value})`,
+        delta: minCap.value - score,
+      });
+      score = minCap.value;
+    }
   }
 
   let level: TimingScoreResult['level'];
