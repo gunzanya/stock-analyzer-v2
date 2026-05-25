@@ -19,13 +19,15 @@ interface Props {
   chaseWarning?: boolean;
 }
 
-// SVG circular gauge.
+// SVG circular gauge. `max` defaults to 100 — timing passes 90 so the raw
+// 0-90 score is shown directly (matches the breakdown sum, no hidden rescale).
 function Gauge({
   score,
   size,
   stroke,
   label,
   level,
+  max = 100,
   scoreFontClass = 'text-3xl',
 }: {
   score: number;
@@ -33,12 +35,15 @@ function Gauge({
   stroke: number;
   label: string;
   level: 'STRONG' | 'WATCH' | 'NEUTRAL' | 'AVOID';
+  max?: number;
   scoreFontClass?: string;
 }) {
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
-  const lvl = scoreLevel(score);
-  const dash = (score / 100) * c;
+  // Color tier uses the normalized score so 70/40 thresholds remain meaningful
+  // across different max scales (fund 70/100 and timing 63/90 both → 'high').
+  const lvl = scoreLevel((score / max) * 100);
+  const dash = (score / max) * c;
   const color = SCORE_COLOR[lvl];
 
   return (
@@ -69,7 +74,7 @@ function Gauge({
           <span className={`font-bold tabular-nums ${scoreFontClass} ${SCORE_TEXT[lvl]}`}>
             {score}
           </span>
-          <span className="text-[10px] text-slate-500">/ 100</span>
+          <span className="text-[10px] text-slate-500">/ {max}</span>
         </div>
       </div>
       <p className="mt-2 text-xs text-slate-400 font-medium">{label}</p>
@@ -86,9 +91,10 @@ export function TotalScoreCard({
   timing,
   chaseWarning = false,
 }: Props) {
-  // Timing is natively 0–90 — rescale to 0–100 for display consistency.
-  const timingPct = Math.round((timing.score / 90) * 100);
-  const entry = entryGrade(timingPct, chaseWarning);
+  // Timing is natively 0–90; we display the raw score so the gauge number
+  // matches the breakdown sum below. entryGrade thresholds (70/55/40) apply
+  // to that same raw scale and stay aligned with timing.level.
+  const entry = entryGrade(timing.score, chaseWarning);
   const stockLevelText = LEVEL_KO[fundamental.level];
   return (
     <section className="rounded-xl bg-[#0f172a] border border-[#1e293b] p-5">
@@ -115,7 +121,8 @@ export function TotalScoreCard({
           />
           <div className="text-slate-700 text-2xl">+</div>
           <Gauge
-            score={timingPct}
+            score={timing.score}
+            max={90}
             level={timing.level}
             label="타이밍"
             size={88}
@@ -144,7 +151,7 @@ export function TotalScoreCard({
           <span>
             <span className={`font-semibold ${entry.textClass}`}>{entry.label}</span>
             <span className="text-slate-500 ml-2 text-xs">
-              (타이밍 {timingPct})
+              (타이밍 {timing.score} / 90)
             </span>
           </span>
         </p>

@@ -38,25 +38,26 @@ export const LEVEL_KO: Record<'STRONG' | 'WATCH' | 'NEUTRAL' | 'AVOID', string> 
   AVOID: '회피',
 };
 
-// Entry grade — independent of fundamental level. Derived from timingPct
-// (0-100). When chaseWarning fires (peak earnings + 30d spike + EMA20 stretch),
-// override to "추격주의" regardless of how high timing scores.
+// Entry grade — derived from the raw timing score (0-90 scale, same units
+// the gauge and breakdown sum use). Thresholds align with timing.level so
+// the entry label never contradicts the level shown under the gauge.
+// chaseWarning overrides to "추격주의" regardless of how high timing scores.
 export type EntryGradeLevel = 'ready' | 'wait' | 'avoid' | 'danger' | 'chase';
 
 export function entryGrade(
-  timingPct: number,
+  timingScore: number,
   chaseWarning = false,
 ): { label: string; level: EntryGradeLevel; textClass: string } {
   if (chaseWarning) {
     return { label: '추격주의', level: 'chase', textClass: 'text-orange-400' };
   }
-  if (timingPct >= 70) {
+  if (timingScore >= 70) {
     return { label: '진입 적기', level: 'ready', textClass: 'text-emerald-400' };
   }
-  if (timingPct >= 55) {
+  if (timingScore >= 55) {
     return { label: '관심/대기', level: 'wait', textClass: 'text-amber-400' };
   }
-  if (timingPct >= 40) {
+  if (timingScore >= 40) {
     return { label: '회피', level: 'avoid', textClass: 'text-slate-400' };
   }
   return { label: '위험', level: 'danger', textClass: 'text-red-400' };
