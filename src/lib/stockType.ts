@@ -195,6 +195,27 @@ function scoreFastGrower(fund: FundamentalData): TypeCandidateScore {
     reasons.push(`Materials/Mining (${fund.industry}) → -15 (상품가격 사이클)`);
   }
 
+  // Semiconductors — structurally cyclical (capex waves, inventory cycles).
+  // Base penalty -10 with a recovery clause for high-margin growth pattern
+  // (NVDA/AVGO: rev>25% + GM>55% + OM>25% → genuine secular grower).
+  const semi = getSemiType(fund);
+  if (semi != null) {
+    score -= 10;
+    reasons.push(`반도체 산업 → -10 (구조적 순환)`);
+    const gm = fund.grossMargin;
+    const om = fund.operatingMargin;
+    if (
+      isNum(rev) && rev > 0.25 &&
+      isNum(gm) && gm > 0.55 &&
+      isNum(om) && om > 0.25
+    ) {
+      score += 20;
+      reasons.push(
+        `고마진 성장형 (매출+${(rev * 100).toFixed(0)}%, GM ${(gm * 100).toFixed(0)}%, OM ${(om * 100).toFixed(0)}%) → +20 (반도체 성장 회복)`,
+      );
+    }
+  }
+
   // Caps the score in case of insanely high one-shot EPS (stage 6 defense)
   if (isNum(eps) && eps > 10) {
     score = Math.min(score, 50);
@@ -280,6 +301,18 @@ function scoreStalwart(fund: FundamentalData): TypeCandidateScore {
       reasons.push(`대형 ${fund.sector} → +10`);
     }
   }
+  // Mega-bank bonus — JPM/BAC/WFC ≥$100B are the most stalwart of stalwarts
+  // (diversified, regulated, dividend-paying). Stacks with the sector bonus
+  // above. Smaller/regional banks behave more cyclically — handled in CYCLICAL.
+  if (
+    fund.sector === 'Financial Services' &&
+    fund.industry &&
+    /bank/i.test(fund.industry) &&
+    isNum(mcap) && mcap >= 100e9
+  ) {
+    score += 10;
+    reasons.push(`메가뱅크 ($${(mcap / 1e9).toFixed(0)}B ≥ $100B) → +10`);
+  }
 
   // Mega-cap floor: enormous companies retain stalwart characteristics
   // regardless of growth speed or recent earnings noise. AMZN at $2.79T
@@ -359,6 +392,13 @@ function scoreSlowGrower(fund: FundamentalData): TypeCandidateScore {
     score += 10;
     reasons.push(`산업 ${ind} → +10`);
   }
+  // Energy midstream (pipelines/MLPs) — fee-based revenue, structurally
+  // income-stock, not commodity-cyclical. Push toward SLOW_GROWER hard so
+  // EPD/ET/KMI/MPLX don't get misclassified as cyclical.
+  if (sec === 'Energy' && /midstream|pipeline/i.test(ind)) {
+    score += 20;
+    reasons.push(`Energy Midstream (수수료 기반 파이프라인) → +20 (배당형)`);
+  }
 
   return { type: 'SLOW_GROWER', score: Math.min(Math.max(0, score), 100), reasons };
 }
@@ -427,6 +467,19 @@ function scoreCyclical(fund: FundamentalData): TypeCandidateScore {
     score += 10;
     reasons.push('반도체 → +10');
   }
+  // Memory-pattern kicker: any semi exhibiting high EPS or margin volatility
+  // behaves like MU/하이닉스 (deep cycles), regardless of declared subtype.
+  if (semi != null) {
+    const epsHighVol = epsCoV != null && epsCoV > 0.7;
+    const marginVol = opRange != null && opRange > 0.15;
+    if (epsHighVol || marginVol) {
+      score += 10;
+      const parts: string[] = [];
+      if (epsHighVol) parts.push(`EPS CoV ${epsCoV!.toFixed(2)}`);
+      if (marginVol) parts.push(`마진 변동 ${(opRange! * 100).toFixed(0)}pp`);
+      reasons.push(`반도체 변동성 (${parts.join(', ')}) → +10 (메모리형 사이클)`);
+    }
+  }
 
   // Communication/Technology + stable revenue → NOT cyclical (META protect)
   if (
@@ -437,6 +490,24 @@ function scoreCyclical(fund: FundamentalData): TypeCandidateScore {
   ) {
     score = Math.max(0, score - 15);
     reasons.push('Tech/Comm + 매출 안정 → -15 (순환 패턴 아님)');
+  }
+
+  // Energy midstream — pipelines collect tolls, not exposed to oil price
+  // swings the way upstream E&P is. Strip the Energy-sector +20 bonus.
+  if (sec === 'Energy' && /midstream|pipeline/i.test(ind)) {
+    score = Math.max(0, score - 15);
+    reasons.push('Midstream (수수료 기반) → -15 (원유가 사이클 약함)');
+  }
+
+  // Small/regional banks behave cyclically (credit cycle, NIM swings, CRE
+  // exposure). Mega-banks (≥$100B) get the STALWART treatment instead.
+  if (
+    sec === 'Financial Services' &&
+    /bank/i.test(ind) &&
+    (!isNum(fund.marketCap) || fund.marketCap < 100e9)
+  ) {
+    score += 10;
+    reasons.push('중소형 은행 (<$100B) → +10 (대출 사이클)');
   }
 
   return { type: 'CYCLICAL', score: Math.min(Math.max(0, score), 100), reasons };
