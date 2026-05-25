@@ -143,28 +143,52 @@ function isBreakoutReady(r: AnalysisResult): boolean {
   return true;
 }
 
+// 진입적기 — 돌파대기보다 한 단계 강한 setup: 추세 확정 + 진입 위치 합리 +
+// 모멘텀 상승 + 과열 신호 부재. 타이밍 raw ≥70 (=entryGrade '진입 적기' tier).
 function isEntryReady(r: AnalysisResult): boolean {
-  const { adx, ema20, rsi, obvDivergence } = r.indicators;
+  const { adx, rs, ema20, rsi, sma50, sma200, volumeRatio, obvDivergence } = r.indicators;
   const close = r.priceBars[0]?.close;
   const isKR = /\.(KS|KQ)$/i.test(r.fundamental.ticker);
   const fundMin = isKR ? 60 : 65;
-  // raw 0-90: KR 65 / US 70 — aligns with entryGrade '진입 적기' threshold.
   const timingMin = isKR ? 65 : 70;
   const adxMin = isKR ? 20 : 25;
-  const emaPctLimit = isKR ? 0.05 : 0.03;
-  const rsiMin = isKR ? 40 : 45;
+  const rsMin = isKR ? 55 : 60;
+  // Asymmetric EMA20 band — small pullback OK, modest premium OK (가속 자리).
+  const emaDistMin = isKR ? -0.03 : -0.02;
+  const emaDistMax = isKR ? 0.05 : 0.04;
+  const rsiMin = isKR ? 45 : 50;
   const rsiMax = 65;
+  // Volume gate: hard threshold OR optimal-pullback soft path (vol can dry up
+  // in a healthy pullback — penalize less when EMA distance + RSI line up).
+  const volMinHard = isKR ? 0.5 : 0.8;
+  const volMinSoft = isKR ? 0.4 : 0.6;
+  const softEmaMax = isKR ? 0.04 : 0.03;
+  const softRsiMax = 62;
+
   if (r.fundamentalScore.score < fundMin) return false;
   if (r.timingScore.score < timingMin) return false;
   if (adx == null || adx < adxMin) return false;
-  if (close == null || ema20 == null || ema20 <= 0) return false;
-  if (Math.abs((close - ema20) / ema20) > emaPctLimit) return false;
+  if (rs == null || rs < rsMin) return false;
+  if (close == null) return false;
+  if (sma50 == null || close <= sma50) return false;
+  if (sma200 == null || close <= sma200) return false;
+  if (ema20 == null || ema20 <= 0) return false;
+  const dist = (close - ema20) / ema20;
+  if (dist < emaDistMin || dist > emaDistMax) return false;
   if (rsi == null || rsi < rsiMin || rsi > rsiMax) return false;
-  const slopeMin = isKR ? 0 : 0.1;
+  if (volumeRatio == null) return false;
+  const softVolOk =
+    volumeRatio >= volMinSoft &&
+    dist >= emaDistMin && dist <= softEmaMax &&
+    rsi >= rsiMin && rsi <= softRsiMax;
+  if (volumeRatio < volMinHard && !softVolOk) return false;
   const slope = r.timingDetail?.ema20Slope?.slope;
-  if (slope == null || slope <= slopeMin) return false;
+  if (slope == null || slope <= 0) return false;
   if (obvDivergence === true) return false;
   if (r.safetyGuard.triggered) return false;
+  // Chase warning fires from analyze.ts as a high-severity risk message —
+  // entryReady never co-exists with 추격주의.
+  if (r.riskFactors.some((rk) => rk.message.startsWith('🚨 사이클 상단'))) return false;
   return true;
 }
 
