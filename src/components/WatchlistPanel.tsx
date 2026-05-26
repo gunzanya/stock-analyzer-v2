@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import type { ScreenerSummary } from '../lib/screenerTypes.js';
 import { SCORE_TEXT, scoreLevel } from './scoreColors.js';
 import { loadScoreHistory, saveScoreEntry, type ScoreEntry } from '../lib/scoreHistory.js';
+import { STOCK_TYPE_LABELS, type StockType } from '../lib/types.js';
 
 type Status = 'idle' | 'running' | 'done' | 'error';
 type SortKey = 'overall' | 'fundamental' | 'timing' | 'ema20Pct' | 'changePct' | 'status';
@@ -10,7 +11,24 @@ type SortDir = 'asc' | 'desc';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 const ROW_GRID =
-  'grid grid-cols-[minmax(110px,1.3fr)_75px_55px_50px_50px_50px_60px_55px] items-center';
+  'grid grid-cols-[minmax(110px,1.3fr)_60px_70px_50px_50px_50px_50px_55px_50px] items-center';
+
+function typeBadge(r: ScreenerSummary): { icons: string; title: string } | null {
+  if (!r.primary) return null;
+  if (r.uncertain) return { icons: '❓', title: '분류 불확실' };
+  const primary = r.primary as StockType;
+  const primaryLabel = STOCK_TYPE_LABELS[primary];
+  if (!primaryLabel) return null;
+  const secondary = r.secondary as StockType | null | undefined;
+  const secondaryLabel = secondary ? STOCK_TYPE_LABELS[secondary] : null;
+  if (secondaryLabel) {
+    return {
+      icons: `${primaryLabel.emoji}/${secondaryLabel.emoji}`,
+      title: `${primaryLabel.ko} / ${secondaryLabel.ko}`,
+    };
+  }
+  return { icons: primaryLabel.emoji, title: primaryLabel.ko };
+}
 
 function tickerHref(t: string): string {
   return `/?ticker=${encodeURIComponent(t)}`;
@@ -208,6 +226,7 @@ export function WatchlistPanel({ favorites, onToggleFavorite, onPickTicker }: Pr
           <div className="hidden sm:block rounded-2xl border border-[#1e293b] bg-[#0f172a] overflow-hidden">
             <div className={`${ROW_GRID} bg-[#1e293b]/40 text-[10px] uppercase tracking-wider text-slate-400`}>
               <div className="px-3 py-2 font-medium">종목명</div>
+              <div className="px-2 py-2 font-medium text-center">유형</div>
               <div className="px-2 py-2 font-medium text-right">현재가</div>
               <SortHeader label="등락" active={sortKey === 'changePct'} dir={sortDir} onClick={() => toggleSort('changePct')} />
               <SortHeader label="종합" active={sortKey === 'overall'} dir={sortDir} onClick={() => toggleSort('overall')} />
@@ -313,6 +332,7 @@ function WatchRow({ row, history, isFavorite, onToggleFavorite, onPick }: {
   const st = statusOf(row);
   const chg = row.changePct;
   const ema = row.ema20Pct;
+  const tb = typeBadge(row);
   return (
     <a
       href={tickerHref(row.ticker)}
@@ -332,6 +352,9 @@ function WatchRow({ row, history, isFavorite, onToggleFavorite, onPick }: {
         </div>
         <div className="text-[9px] text-slate-500 truncate max-w-[140px] ml-5">{row.name ?? ''}</div>
         <div className="ml-5"><MiniHistoryStrip history={history} /></div>
+      </div>
+      <div className="px-2 py-2 text-center text-xs" title={tb?.title ?? ''}>
+        {tb ? tb.icons : '—'}
       </div>
       <div className="px-2 py-2 text-right text-xs font-mono text-slate-200">
         {formatPrice(row.price)}
@@ -382,6 +405,7 @@ function WatchMobileCard({ row, history, onToggleFavorite, onPick }: {
   const st = statusOf(row);
   const chg = row.changePct;
   const ema = row.ema20Pct;
+  const tb = typeBadge(row);
   return (
     <a
       href={tickerHref(row.ticker)}
@@ -392,6 +416,7 @@ function WatchMobileCard({ row, history, onToggleFavorite, onPick }: {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="font-mono font-semibold text-slate-100">{row.ticker}</span>
+            {tb && <span title={tb.title}>{tb.icons}</span>}
             {st.icon !== '—' && <span title={st.label}>{st.icon}</span>}
           </div>
           <p className="text-[11px] text-slate-500 truncate">{row.name ?? ''}</p>

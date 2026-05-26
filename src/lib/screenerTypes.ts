@@ -12,6 +12,9 @@ export interface ScreenerSummary {
   // screener table only needs scores + classification + safety flag; the
   // full result is re-fetched when the user clicks into a row.
   primary?: AnalysisResult['classification']['primary'];
+  primaryRatio?: number;
+  secondary?: AnalysisResult['classification']['secondary'];
+  secondaryRatio?: number;
   display?: string;
   uncertain?: boolean;
   // overall/fundamental are 0–100; timing is raw 0–90 (matches the card

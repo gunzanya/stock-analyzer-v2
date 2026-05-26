@@ -1,14 +1,22 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   closePosition,
+  createPortfolio,
+  deletePortfolio,
+  getSelectedPortfolioId,
+  listPortfolios,
   loadClosed,
   loadPositions,
   loadSnapshots,
   loadEvents,
+  onPortfolioChange,
   recordSnapshot,
   removePosition,
+  renamePortfolio,
+  selectPortfolio,
   updatePosition,
   type ClosedPosition,
+  type PortfolioMeta,
   type PortfolioPosition,
   type StrategyTag,
 } from '../lib/portfolio.js';
@@ -51,6 +59,8 @@ function loadPosView(): PosView {
 }
 
 export function PortfolioPanel({ onPickTicker }: { onPickTicker: (ticker: string) => void }) {
+  const [portfolios, setPortfolios] = useState<PortfolioMeta[]>(() => listPortfolios());
+  const [selectedId, setSelectedId] = useState<string>(() => getSelectedPortfolioId());
   const [positions, setPositions] = useState<PortfolioPosition[]>([]);
   const [closed, setClosed] = useState<ClosedPosition[]>([]);
   const [prices, setPrices] = useState<PriceMap>({});
@@ -71,6 +81,8 @@ export function PortfolioPanel({ onPickTicker }: { onPickTicker: (ticker: string
   }
 
   const reload = useCallback(() => {
+    setPortfolios(listPortfolios());
+    setSelectedId(getSelectedPortfolioId());
     setPositions(loadPositions());
     setClosed(loadClosed());
     setSnapshots(loadSnapshots());
@@ -78,6 +90,10 @@ export function PortfolioPanel({ onPickTicker }: { onPickTicker: (ticker: string
   }, []);
 
   useEffect(() => { reload(); }, [reload]);
+
+  // Listen for portfolio list/selection changes (eg. after sync or programmatic
+  // create/delete) so every view reflects the same active portfolio.
+  useEffect(() => onPortfolioChange(reload), [reload]);
 
   useEffect(() => onSyncStatus(setSyncStatus), []);
 
@@ -155,6 +171,15 @@ export function PortfolioPanel({ onPickTicker }: { onPickTicker: (ticker: string
 
   return (
     <div className="space-y-4">
+      <PortfolioSelector
+        portfolios={portfolios}
+        selectedId={selectedId}
+        onSelect={(id) => selectPortfolio(id)}
+        onCreate={(name) => createPortfolio(name)}
+        onRename={(id, name) => renamePortfolio(id, name)}
+        onDelete={(id) => deletePortfolio(id)}
+      />
+
       <div className="flex items-center gap-1 border-b border-[#1e293b]">
         <SubTab active={view === 'active'} onClick={() => setView('active')}>
           보유 ({positions.length})
@@ -831,6 +856,222 @@ function StatBox({ label, value, sub, positive }: { label: string; value: string
       <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">{label}</p>
       <p className={`text-lg font-bold tabular-nums ${color}`}>{value}</p>
       <p className="text-[10px] text-slate-500">{sub}</p>
+    </div>
+  );
+}
+
+/* ── Portfolio Selector ── */
+
+function PortfolioSelector({
+  portfolios,
+  selectedId,
+  onSelect,
+  onCreate,
+  onRename,
+  onDelete,
+}: {
+  portfolios: PortfolioMeta[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+  onCreate: (name: string) => string;
+  onRename: (id: string, name: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const [renameName, setRenameName] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState<PortfolioMeta | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const current = portfolios.find((p) => p.id === selectedId) ?? portfolios[0];
+  const canDelete = portfolios.length > 1;
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setCreating(false);
+        setNewName('');
+      }
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  function handleCreate() {
+    const name = newName.trim();
+    if (!name) return;
+    onCreate(name);
+    setCreating(false);
+    setNewName('');
+    setOpen(false);
+  }
+
+  function handleRenameSave() {
+    if (!current) return;
+    const name = renameName.trim();
+    if (!name || name === current.name) {
+      setRenaming(false);
+      return;
+    }
+    onRename(current.id, name);
+    setRenaming(false);
+  }
+
+  return (
+    <div className="rounded-2xl border border-[#1e293b] bg-[#0f172a] p-3 flex items-center gap-2">
+      <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
+        포트폴리오
+      </span>
+      <div ref={ref} className="relative flex-1 min-w-0">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="w-full flex items-center justify-between gap-2 min-h-[36px] px-3 py-1.5 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-sm text-slate-100 hover:border-indigo-700 transition-colors"
+        >
+          <span className="truncate font-semibold">
+            {current?.name ?? '—'}
+          </span>
+          <span className="text-slate-500 text-xs">▾</span>
+        </button>
+        {open && (
+          <div className="absolute left-0 right-0 mt-2 rounded-lg border border-[#1e293b] bg-[#0f172a] shadow-xl shadow-black/40 z-30 overflow-hidden">
+            <ul className="max-h-72 overflow-y-auto py-1">
+              {portfolios.map((p) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    onClick={() => { onSelect(p.id); setOpen(false); }}
+                    className={
+                      'w-full text-left px-3 py-2 text-sm transition-colors ' +
+                      (p.id === selectedId
+                        ? 'bg-indigo-900/40 text-indigo-200'
+                        : 'text-slate-300 hover:bg-slate-800')
+                    }
+                  >
+                    {p.id === selectedId ? '✓ ' : ''}{p.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="border-t border-[#1e293b] px-2 py-2">
+              {creating ? (
+                <div className="flex gap-1">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleCreate();
+                      else if (e.key === 'Escape') { setCreating(false); setNewName(''); }
+                    }}
+                    placeholder="포트폴리오 이름"
+                    className="flex-1 min-h-[32px] px-2 py-1 rounded border border-[#1e293b] bg-[#0a0f1a] text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCreate}
+                    className="px-2 min-h-[32px] rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold"
+                  >
+                    추가
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setCreating(true)}
+                  className="w-full text-left px-2 py-1.5 rounded text-xs text-indigo-300 hover:bg-indigo-900/30 transition-colors"
+                >
+                  ➕ 새 포트폴리오
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {renaming ? (
+        <div className="flex gap-1">
+          <input
+            autoFocus
+            type="text"
+            value={renameName}
+            onChange={(e) => setRenameName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleRenameSave();
+              else if (e.key === 'Escape') setRenaming(false);
+            }}
+            className="w-32 min-h-[32px] px-2 py-1 rounded border border-[#1e293b] bg-[#0a0f1a] text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          <button
+            type="button"
+            onClick={handleRenameSave}
+            className="min-h-[32px] px-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold"
+          >
+            저장
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            if (!current) return;
+            setRenameName(current.name);
+            setRenaming(true);
+          }}
+          className="min-h-[36px] w-9 flex items-center justify-center rounded-lg border border-[#1e293b] text-slate-500 hover:text-slate-200 hover:border-slate-600 transition-colors text-sm"
+          aria-label="이름 수정"
+          title="이름 수정"
+        >
+          ✏️
+        </button>
+      )}
+
+      <button
+        type="button"
+        onClick={() => { if (current && canDelete) setConfirmDelete(current); }}
+        disabled={!canDelete}
+        className="min-h-[36px] w-9 flex items-center justify-center rounded-lg border border-[#1e293b] text-slate-500 hover:text-red-400 hover:border-red-900 transition-colors text-sm disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-500 disabled:hover:border-[#1e293b]"
+        aria-label="포트폴리오 삭제"
+        title={canDelete ? '포트폴리오 삭제' : '마지막 포트폴리오는 삭제할 수 없습니다'}
+      >
+        🗑️
+      </button>
+
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setConfirmDelete(null); }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-[#0f172a] border border-[#1e293b] p-6 shadow-2xl">
+            <h3 className="text-base font-bold text-slate-100 mb-2">포트폴리오 삭제</h3>
+            <p className="text-xs text-slate-400 mb-4">
+              <span className="text-slate-100 font-semibold">"{confirmDelete.name}"</span>
+              <span> 포트폴리오의 보유 종목, 청산 기록, 성과 데이터가 모두 삭제됩니다. 되돌릴 수 없습니다.</span>
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { onDelete(confirmDelete.id); setConfirmDelete(null); }}
+                className="flex-1 min-h-[40px] rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold text-sm transition-colors"
+              >
+                삭제
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(null)}
+                className="min-h-[40px] px-4 rounded-lg border border-[#1e293b] text-slate-400 text-sm transition-colors"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
