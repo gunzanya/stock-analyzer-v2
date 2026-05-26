@@ -21,6 +21,73 @@ const ATR_PARAMS: Record<StockType, { stop: number; t1: number; t2: number }> = 
   SPECULATIVE: { stop: 1.5, t1: 3.5, t2: 7.5 },
 };
 
+// Manual-add auto-suggest multipliers. Same as ATR_PARAMS for 5 named types;
+// 자산주/저성장배당 fall back to 대형우량 per the manual-entry spec (those
+// rules-of-thumb aren't built around dividend/asset positions).
+const AUTO_FALLBACK: StockType = 'STALWART';
+const AUTO_SUPPORTED: ReadonlySet<StockType> = new Set([
+  'FAST_GROWER', 'STALWART', 'CYCLICAL', 'TURNAROUND', 'SPECULATIVE',
+]);
+
+export function autoStrategyParams(type: StockType): {
+  effectiveType: StockType;
+  fellBack: boolean;
+  stop: number;
+  t1: number;
+  t2: number;
+} {
+  const effective = AUTO_SUPPORTED.has(type) ? type : AUTO_FALLBACK;
+  const p = ATR_PARAMS[effective];
+  return {
+    effectiveType: effective,
+    fellBack: effective !== type,
+    stop: p.stop,
+    t1: p.t1,
+    t2: p.t2,
+  };
+}
+
+export interface AutoStrategySuggestion {
+  stop: number;
+  target1: number;
+  target2: number;
+  riskReward1: number | null;
+  riskReward2: number | null;
+  effectiveType: StockType;
+  fellBack: boolean;
+  rationale: string;
+}
+
+/** Suggest stop/target1/target2 given an arbitrary entry price + current ATR
+ *  + classification primary. Used by AddToPortfolioModal when the user is
+ *  manually recording an existing position (entry may differ from latest
+ *  close, but ATR is the most recent reading available). */
+export function suggestStrategyForEntry(
+  entry: number,
+  atrVal: number,
+  type: StockType,
+): AutoStrategySuggestion | null {
+  if (!(entry > 0) || !(atrVal > 0)) return null;
+  const p = autoStrategyParams(type);
+  const stop = round(entry - p.stop * atrVal);
+  const target1 = round(entry + p.t1 * atrVal);
+  const target2 = round(entry + p.t2 * atrVal);
+  const risk = entry - stop;
+  const rr1 = risk > 0 ? round((target1 - entry) / risk, 1) : null;
+  const rr2 = risk > 0 ? round((target2 - entry) / risk, 1) : null;
+  const rationale = `${p.effectiveType} · ATR×${p.stop} / ATR×${p.t1} / ATR×${p.t2}`;
+  return {
+    stop,
+    target1,
+    target2,
+    riskReward1: rr1,
+    riskReward2: rr2,
+    effectiveType: p.effectiveType,
+    fellBack: p.fellBack,
+    rationale,
+  };
+}
+
 function round(v: number, digits = 2): number {
   const p = Math.pow(10, digits);
   return Math.round(v * p) / p;

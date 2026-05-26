@@ -423,6 +423,9 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
           currentPrice={f.price}
           stopPrice={strategy.stop}
           targetPrice={strategy.target1}
+          target2Price={strategy.target2}
+          atr14={strategy.atr14}
+          strategyType={effectiveType}
           scores={{
             fundamental: fundamentalScore.score,
             timing: Math.round((result.timingScore.score / 90) * 100),

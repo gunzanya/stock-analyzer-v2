@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import type { StrategyTag } from '../lib/portfolio.js';
+import { useMemo, useState } from 'react';
+import type { StockType } from '../lib/types.js';
+import type { StrategyTag, StrategySource } from '../lib/portfolio.js';
 import {
   addPosition,
   addPositionToPortfolio,
@@ -7,6 +8,7 @@ import {
   getSelectedPortfolioId,
   listPortfolios,
 } from '../lib/portfolio.js';
+import { suggestStrategyForEntry } from '../lib/strategy.js';
 
 const FX_FALLBACK = 1380;
 
@@ -31,6 +33,9 @@ interface Props {
   currentPrice: number | null;
   stopPrice: number | null;
   targetPrice: number | null;
+  target2Price?: number | null;
+  atr14?: number | null;
+  strategyType?: StockType | null;
   scores: { fundamental: number; timing: number; overall: number };
   fxRate?: number | null;
   onClose: () => void;
@@ -43,6 +48,9 @@ export function AddToPortfolioModal({
   currentPrice,
   stopPrice,
   targetPrice,
+  target2Price,
+  atr14,
+  strategyType,
   scores,
   fxRate: fxRateProp,
   onClose,
@@ -58,12 +66,54 @@ export function AddToPortfolioModal({
   const [amount, setAmount] = useState('');
   const [entry, setEntry] = useState(currentPrice?.toString() ?? '');
   const [stop, setStop] = useState(stopPrice?.toString() ?? '');
-  const [target, setTarget] = useState(targetPrice?.toString() ?? '');
+  const [target1, setTarget1] = useState(targetPrice?.toString() ?? '');
+  const [target2, setTarget2] = useState(target2Price?.toString() ?? '');
   const [tag, setTag] = useState<StrategyTag>('A');
   const [memo, setMemo] = useState('');
+  // When `dirty` is true the user has hand-edited at least one of stop /
+  // target1 / target2, so we stop auto-replacing those inputs as the entry
+  // price changes. The "다시 계산" button clears it.
+  const [dirty, setDirty] = useState(false);
 
   const entryPrice = parseFloat(entry);
   const validEntry = Number.isFinite(entryPrice) && entryPrice > 0;
+
+  // Auto-suggestion recomputes whenever entry / ATR / type changes. Stays
+  // computed even when `dirty` is true, so the user can compare against it.
+  const suggestion = useMemo(() => {
+    if (!validEntry || atr14 == null || atr14 <= 0 || !strategyType) return null;
+    return suggestStrategyForEntry(entryPrice, atr14, strategyType);
+  }, [validEntry, entryPrice, atr14, strategyType]);
+
+  // Adjust the editable inputs while rendering when the suggestion changes
+  // (React's recommended pattern over a useEffect+setState). The fingerprint
+  // guards the conditional setState so we don't loop.
+  const fingerprint = suggestion
+    ? `${suggestion.stop}/${suggestion.target1}/${suggestion.target2}`
+    : null;
+  const [appliedFingerprint, setAppliedFingerprint] = useState<string | null>(null);
+  if (!dirty && fingerprint != null && fingerprint !== appliedFingerprint) {
+    setAppliedFingerprint(fingerprint);
+    setStop(String(suggestion!.stop));
+    setTarget1(String(suggestion!.target1));
+    setTarget2(String(suggestion!.target2));
+  }
+
+  function handleManualEdit(setter: (v: string) => void) {
+    return (v: string) => {
+      setter(v);
+      setDirty(true);
+    };
+  }
+
+  function recomputeFromSuggestion() {
+    if (!suggestion) return;
+    setStop(String(suggestion.stop));
+    setTarget1(String(suggestion.target1));
+    setTarget2(String(suggestion.target2));
+    setAppliedFingerprint(fingerprint);
+    setDirty(false);
+  }
 
   const computedQty = inputMode === 'qty'
     ? parseInt(qty, 10)
@@ -76,22 +126,46 @@ export function AddToPortfolioModal({
     const quantity = computedQty;
     if (!Number.isFinite(quantity) || quantity <= 0) return;
 
+    const stopVal = parseFloat(stop);
+    const t1Val = parseFloat(target1);
+    const t2Val = parseFloat(target2);
+
+    const matchesAuto =
+      suggestion != null &&
+      !dirty &&
+      Number.isFinite(stopVal) && stopVal === suggestion.stop &&
+      Number.isFinite(t1Val) && t1Val === suggestion.target1 &&
+      Number.isFinite(t2Val) && t2Val === suggestion.target2;
+    const source: StrategySource = matchesAuto ? 'auto' : 'manual';
+
+    const risk = validEntry && Number.isFinite(stopVal) ? entryPrice - stopVal : null;
+    const rr1 =
+      risk != null && risk > 0 && Number.isFinite(t1Val)
+        ? Math.round(((t1Val - entryPrice) / risk) * 10) / 10
+        : null;
+    const rr2 =
+      risk != null && risk > 0 && Number.isFinite(t2Val)
+        ? Math.round(((t2Val - entryPrice) / risk) * 10) / 10
+        : null;
+
     const newPos = {
       id: genId(),
       ticker,
       name,
       quantity,
       entryPrice,
-      stopPrice: parseFloat(stop) || null,
-      targetPrice: parseFloat(target) || null,
+      stopPrice: Number.isFinite(stopVal) ? stopVal : null,
+      targetPrice: Number.isFinite(t1Val) ? t1Val : null,
+      target2Price: Number.isFinite(t2Val) ? t2Val : null,
+      strategyType: strategyType ?? null,
+      riskReward1: rr1,
+      riskReward2: rr2,
+      strategySource: source,
       entryDate: new Date().toISOString().slice(0, 10),
       scores,
       strategyTag: tag,
       memo,
     };
-    // Picking a non-current portfolio routes the position there without
-    // moving the global selection — addPosition() targets selected, while
-    // addPositionToPortfolio() takes an explicit id.
     if (targetPortfolioId === currentPortfolioId) {
       addPosition(newPos);
     } else {
@@ -103,12 +177,12 @@ export function AddToPortfolioModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 overflow-y-auto py-6"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-md rounded-2xl bg-[#0f172a] border border-[#1e293b] p-6 shadow-2xl"
+        className="w-full max-w-md rounded-2xl bg-[#0f172a] border border-[#1e293b] p-6 shadow-2xl my-auto"
       >
         <h3 className="text-base font-bold text-slate-100 mb-1">
           💼 포트폴리오 추가
@@ -138,6 +212,47 @@ export function AddToPortfolioModal({
           )}
 
           <Field label="진입가" value={entry} onChange={setEntry} required />
+
+          {suggestion && (
+            <div className="rounded-lg border border-indigo-900/60 bg-indigo-950/20 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] uppercase tracking-wider font-bold text-indigo-300">
+                  전략값 자동 제안
+                </p>
+                <button
+                  type="button"
+                  onClick={recomputeFromSuggestion}
+                  className="text-[10px] px-2 py-0.5 rounded border border-indigo-700/50 text-indigo-300 hover:bg-indigo-900/30 transition-colors"
+                  title="현재 진입가/ATR로 다시 계산"
+                >
+                  ↻ 다시 계산
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[11px] tabular-nums">
+                <SuggestionLine label="손절가" value={suggestion.stop} kr={kr} />
+                <SuggestionLine label="1차 목표" value={suggestion.target1} kr={kr} />
+                <SuggestionLine label="2차 목표" value={suggestion.target2} kr={kr} />
+              </div>
+              <p className="text-[10px] text-indigo-200/80">
+                R:R{' '}
+                <span className="font-semibold">
+                  {suggestion.riskReward1 != null ? suggestion.riskReward1.toFixed(1) : '—'}
+                </span>
+                {' / '}
+                <span className="font-semibold">
+                  {suggestion.riskReward2 != null ? suggestion.riskReward2.toFixed(1) : '—'}
+                </span>
+                {' · 기준: '}
+                <span className="font-mono">{suggestion.rationale}</span>
+                {suggestion.fellBack && (
+                  <span className="text-amber-300"> (fallback)</span>
+                )}
+              </p>
+              <p className="text-[10px] text-slate-500 leading-snug">
+                과거 보유분 추가 시 현재 ATR 기준으로 계산되므로 실제 진입 당시 전략값과 다를 수 있습니다. 아래 손절가/목표가를 직접 수정할 수 있어요.
+              </p>
+            </div>
+          )}
 
           {/* Quantity / Amount toggle */}
           <div>
@@ -173,8 +288,9 @@ export function AddToPortfolioModal({
             </div>
           )}
 
-          <Field label="손절가" value={stop} onChange={setStop} />
-          <Field label="목표가" value={target} onChange={setTarget} />
+          <Field label="손절가" value={stop} onChange={handleManualEdit(setStop)} />
+          <Field label="1차 목표가" value={target1} onChange={handleManualEdit(setTarget1)} />
+          <Field label="2차 목표가" value={target2} onChange={handleManualEdit(setTarget2)} />
 
           <div>
             <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
@@ -220,6 +336,15 @@ export function AddToPortfolioModal({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function SuggestionLine({ label, value, kr }: { label: string; value: number; kr: boolean }) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-[9px] uppercase tracking-wider text-indigo-400">{label}</span>
+      <span className="text-indigo-100 font-semibold">{fmtCurrency(value, kr)}</span>
     </div>
   );
 }

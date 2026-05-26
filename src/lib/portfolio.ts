@@ -1,5 +1,7 @@
 export type StrategyTag = 'A' | 'B';
 
+export type StrategySource = 'auto' | 'manual';
+
 export interface PortfolioPosition {
   id: string;
   ticker: string;
@@ -7,7 +9,16 @@ export interface PortfolioPosition {
   quantity: number;
   entryPrice: number;
   stopPrice: number | null;
+  /** 1차 목표가. Kept under the original `targetPrice` name for backwards
+   *  compatibility with positions stored before the 2-target split. */
   targetPrice: number | null;
+  target2Price?: number | null;
+  /** Stock-type used when the auto-suggest was generated (e.g. "CYCLICAL").
+   *  Helps reconstruct the rationale even after re-classification drifts. */
+  strategyType?: string | null;
+  riskReward1?: number | null;
+  riskReward2?: number | null;
+  strategySource?: StrategySource;
   entryDate: string;
   scores: { fundamental: number; timing: number; overall: number };
   strategyTag: StrategyTag;
