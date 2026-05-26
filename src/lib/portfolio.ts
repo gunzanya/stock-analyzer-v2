@@ -283,6 +283,26 @@ export function addPosition(pos: PortfolioPosition) {
   addEvent('buy', pos.ticker);
 }
 
+// Append a position to a specific portfolio without changing the globally
+// selected one. Used by AddToPortfolioModal when the user picks a non-current
+// portfolio in the dropdown.
+export function addPositionToPortfolio(portfolioId: string, pos: PortfolioPosition) {
+  ensureInitialized();
+  const list = listPortfolios();
+  if (!list.some((p) => p.id === portfolioId)) return;
+  const positions = readRaw<PortfolioPosition>(posKey(portfolioId)).map((p) => ({
+    ...p,
+    quantity: p.quantity ?? 100,
+  }));
+  positions.push(pos);
+  writeRaw(posKey(portfolioId), positions);
+  const events = readRaw<PortfolioEvent>(eventKey(portfolioId));
+  events.push({ date: new Date().toISOString().slice(0, 10), type: 'buy', ticker: pos.ticker });
+  writeRaw(eventKey(portfolioId), events);
+  import('./sync.js').then((m) => m.pushToServer());
+  emitChange();
+}
+
 export function removePosition(id: string) {
   savePositions(loadPositions().filter((p) => p.id !== id));
 }

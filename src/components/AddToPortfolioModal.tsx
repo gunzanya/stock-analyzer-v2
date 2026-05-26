@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import type { StrategyTag } from '../lib/portfolio.js';
-import { addPosition, genId } from '../lib/portfolio.js';
+import {
+  addPosition,
+  addPositionToPortfolio,
+  genId,
+  getSelectedPortfolioId,
+  listPortfolios,
+} from '../lib/portfolio.js';
 
 const FX_FALLBACK = 1380;
 
@@ -44,6 +50,9 @@ export function AddToPortfolioModal({
 }: Props) {
   const rate = fxRateProp ?? FX_FALLBACK;
   const kr = isKR(ticker);
+  const portfolios = listPortfolios();
+  const currentPortfolioId = getSelectedPortfolioId();
+  const [targetPortfolioId, setTargetPortfolioId] = useState<string>(currentPortfolioId);
   const [inputMode, setInputMode] = useState<'qty' | 'amount'>('qty');
   const [qty, setQty] = useState('100');
   const [amount, setAmount] = useState('');
@@ -67,7 +76,7 @@ export function AddToPortfolioModal({
     const quantity = computedQty;
     if (!Number.isFinite(quantity) || quantity <= 0) return;
 
-    addPosition({
+    const newPos = {
       id: genId(),
       ticker,
       name,
@@ -79,7 +88,15 @@ export function AddToPortfolioModal({
       scores,
       strategyTag: tag,
       memo,
-    });
+    };
+    // Picking a non-current portfolio routes the position there without
+    // moving the global selection — addPosition() targets selected, while
+    // addPositionToPortfolio() takes an explicit id.
+    if (targetPortfolioId === currentPortfolioId) {
+      addPosition(newPos);
+    } else {
+      addPositionToPortfolio(targetPortfolioId, newPos);
+    }
     onAdded();
     onClose();
   }
@@ -101,6 +118,25 @@ export function AddToPortfolioModal({
         </p>
 
         <div className="space-y-3">
+          {portfolios.length > 1 && (
+            <div>
+              <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
+                포트폴리오
+              </label>
+              <select
+                value={targetPortfolioId}
+                onChange={(e) => setTargetPortfolioId(e.target.value)}
+                className="w-full min-h-[40px] px-3 py-2 rounded-lg border border-[#1e293b] bg-[#0a0f1a] text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {portfolios.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}{p.id === currentPortfolioId ? ' (현재)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <Field label="진입가" value={entry} onChange={setEntry} required />
 
           {/* Quantity / Amount toggle */}
