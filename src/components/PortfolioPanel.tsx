@@ -47,6 +47,31 @@ function fmtAlt(v: number, kr: boolean, rate: number): string {
   return `≈₩${Math.round(v * rate).toLocaleString()}`;
 }
 
+// Single source of truth for strategy tag presentation. New tags can be
+// added by extending the maps; call sites read these instead of branching
+// inline on strategyTag.
+const TAG_ORDER: StrategyTag[] = ['A', 'B', 'C'];
+const TAG_LABEL: Record<StrategyTag, string> = {
+  A: 'A 이른진입',
+  B: 'B 확인진입',
+  C: 'C 적층식매수',
+};
+const TAG_BADGE_CLASS: Record<StrategyTag, string> = {
+  A: 'bg-amber-900/40 text-amber-300',
+  B: 'bg-blue-900/40 text-blue-300',
+  C: 'bg-purple-900/40 text-purple-300',
+};
+const TAG_ACTIVE_BTN_CLASS: Record<StrategyTag, string> = {
+  A: 'bg-amber-900/60 text-amber-200 border border-amber-700',
+  B: 'bg-blue-900/60 text-blue-200 border border-blue-700',
+  C: 'bg-purple-900/60 text-purple-200 border border-purple-700',
+};
+const TAG_HEADING_CLASS: Record<StrategyTag, string> = {
+  A: 'text-amber-300',
+  B: 'text-blue-300',
+  C: 'text-purple-300',
+};
+
 function toKRW(v: number, kr: boolean, rate: number): number {
   return kr ? v : v * rate;
 }
@@ -283,9 +308,7 @@ export function PortfolioPanel({ onPickTicker }: { onPickTicker: (ticker: string
                     <div className="flex items-baseline gap-2">
                       <span className="font-bold text-sm text-slate-100">{c.ticker}</span>
                       <span className="text-xs text-slate-400">{c.name}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                        c.strategyTag === 'A' ? 'bg-amber-900/40 text-amber-300' : 'bg-blue-900/40 text-blue-300'
-                      }`}>{c.strategyTag}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${TAG_BADGE_CLASS[c.strategyTag]}`}>{c.strategyTag}</span>
                     </div>
                     <div className="text-[11px] text-slate-500 mt-0.5">
                       {c.closedQuantity}주 · {c.entryDate} → {c.closeDate} · {c.holdingDays}일 · {fmtCcy(c.entryPrice, isKR(c.ticker))} → {fmtCcy(c.closePrice, isKR(c.ticker))}
@@ -410,19 +433,19 @@ function EditPositionModal({
 
         <div>
           <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">전략</label>
-          <div className="flex gap-2">
-            {(['A', 'B'] as StrategyTag[]).map((tag) => (
+          <div className="flex gap-2 flex-wrap">
+            {TAG_ORDER.map((tag) => (
               <button
                 key={tag}
                 type="button"
                 onClick={() => set({ strategyTag: tag })}
-                className={`flex-1 min-h-[36px] rounded-lg text-xs font-bold transition-colors ${
+                className={`flex-1 min-w-[88px] min-h-[36px] rounded-lg text-xs font-bold transition-colors ${
                   pos.strategyTag === tag
-                    ? tag === 'A' ? 'bg-amber-900/60 text-amber-200 border border-amber-700' : 'bg-blue-900/60 text-blue-200 border border-blue-700'
+                    ? TAG_ACTIVE_BTN_CLASS[tag]
                     : 'bg-slate-800 text-slate-500 border border-[#1e293b]'
                 }`}
               >
-                {tag === 'A' ? 'A 이른진입' : 'B 확인진입'}
+                {TAG_LABEL[tag]}
               </button>
             ))}
           </div>
@@ -513,10 +536,8 @@ function PositionCard({
         <div className="flex items-baseline gap-2 min-w-0">
           <span className="font-bold text-slate-100">{pos.ticker}</span>
           <span className="text-xs text-slate-400 truncate">{pos.name}</span>
-          <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold flex-shrink-0 ${
-            pos.strategyTag === 'A' ? 'bg-amber-900/40 text-amber-300' : 'bg-blue-900/40 text-blue-300'
-          }`}>
-            {pos.strategyTag === 'A' ? 'A 이른진입' : 'B 확인진입'}
+          <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold flex-shrink-0 ${TAG_BADGE_CLASS[pos.strategyTag]}`}>
+            {TAG_LABEL[pos.strategyTag]}
           </span>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -682,12 +703,17 @@ function PerformanceStats({ closed }: { closed: ClosedPosition[] }) {
   const worst = closed.reduce((a, c) => (c.returnPct < a.returnPct ? c : a), closed[0]);
   const avgDays = Math.round(closed.reduce((a, c) => a + c.holdingDays, 0) / closed.length);
 
-  const tagA = closed.filter((c) => c.strategyTag === 'A');
-  const tagB = closed.filter((c) => c.strategyTag === 'B');
-  const tagAWinRate = tagA.length > 0 ? tagA.filter((c) => c.returnPct > 0).length / tagA.length : null;
-  const tagBWinRate = tagB.length > 0 ? tagB.filter((c) => c.returnPct > 0).length / tagB.length : null;
-  const tagAAvg = tagA.length > 0 ? tagA.reduce((a, c) => a + c.returnPct, 0) / tagA.length : null;
-  const tagBAvg = tagB.length > 0 ? tagB.reduce((a, c) => a + c.returnPct, 0) / tagB.length : null;
+  // Per-tag aggregate: count, win rate, avg return. Reduces duplication and
+  // makes adding new tags (e.g. C 적층식매수) a one-line change.
+  const tagStats: { tag: StrategyTag; count: number; winRate: number | null; avg: number | null }[] =
+    TAG_ORDER.map((tag) => {
+      const rows = closed.filter((c) => c.strategyTag === tag);
+      const count = rows.length;
+      const winRate = count > 0 ? rows.filter((r) => r.returnPct > 0).length / count : null;
+      const avg = count > 0 ? rows.reduce((a, r) => a + r.returnPct, 0) / count : null;
+      return { tag, count, winRate, avg };
+    });
+  const anyTagged = tagStats.some((s) => s.count > 0);
 
   return (
     <div className="space-y-4">
@@ -711,28 +737,23 @@ function PerformanceStats({ closed }: { closed: ClosedPosition[] }) {
         </div>
       </div>
 
-      {(tagA.length > 0 || tagB.length > 0) && (
+      {anyTagged && (
         <div className="rounded-xl border border-[#1e293b] bg-[#0f172a] p-4">
           <h4 className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-3">전략 비교</h4>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <p className="text-amber-300 font-bold mb-1">A 이른진입 ({tagA.length}건)</p>
-              {tagAWinRate != null ? (
-                <>
-                  <p className="text-xs text-slate-400">승률 {(tagAWinRate * 100).toFixed(0)}%</p>
-                  <p className="text-xs text-slate-400">평균 {tagAAvg! >= 0 ? '+' : ''}{(tagAAvg! * 100).toFixed(1)}%</p>
-                </>
-              ) : <p className="text-xs text-slate-600">기록 없음</p>}
-            </div>
-            <div>
-              <p className="text-blue-300 font-bold mb-1">B 확인진입 ({tagB.length}건)</p>
-              {tagBWinRate != null ? (
-                <>
-                  <p className="text-xs text-slate-400">승률 {(tagBWinRate * 100).toFixed(0)}%</p>
-                  <p className="text-xs text-slate-400">평균 {tagBAvg! >= 0 ? '+' : ''}{(tagBAvg! * 100).toFixed(1)}%</p>
-                </>
-              ) : <p className="text-xs text-slate-600">기록 없음</p>}
-            </div>
+          <div className="grid grid-cols-3 gap-4 text-sm">
+            {tagStats.map((s) => (
+              <div key={s.tag}>
+                <p className={`${TAG_HEADING_CLASS[s.tag]} font-bold mb-1`}>
+                  {TAG_LABEL[s.tag]} ({s.count}건)
+                </p>
+                {s.winRate != null && s.avg != null ? (
+                  <>
+                    <p className="text-xs text-slate-400">승률 {(s.winRate * 100).toFixed(0)}%</p>
+                    <p className="text-xs text-slate-400">평균 {s.avg >= 0 ? '+' : ''}{(s.avg * 100).toFixed(1)}%</p>
+                  </>
+                ) : <p className="text-xs text-slate-600">기록 없음</p>}
+              </div>
+            ))}
           </div>
         </div>
       )}

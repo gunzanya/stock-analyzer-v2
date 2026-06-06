@@ -296,9 +296,10 @@ export function AddToPortfolioModal({
             <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
               전략 태그
             </label>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <TagButton label="A 이른진입" active={tag === 'A'} onClick={() => setTag('A')} />
               <TagButton label="B 확인진입" active={tag === 'B'} onClick={() => setTag('B')} />
+              <TagButton label="C 적층식매수" active={tag === 'C'} onClick={() => setTag('C')} />
             </div>
           </div>
 

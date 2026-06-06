@@ -1,4 +1,6 @@
-export type StrategyTag = 'A' | 'B';
+// 'A' 이른진입 / 'B' 확인진입 / 'C' 적층식매수(피라미딩, 평단 관리).
+// Existing 'A'/'B' positions are unaffected by the C addition.
+export type StrategyTag = 'A' | 'B' | 'C';
 
 export type StrategySource = 'auto' | 'manual';
 
