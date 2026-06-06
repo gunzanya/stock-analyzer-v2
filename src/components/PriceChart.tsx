@@ -91,7 +91,12 @@ function computeChartData(bars: PriceBar[]): ChartData {
     const upper = bb?.upper[i] ?? null;
     const lower = bb?.lower[i] ?? null;
     return {
-      date: b.date.slice(5), // MM-DD
+      // Full YYYY-MM-DD as the X-axis key so Recharts' category axis doesn't
+      // merge same-MM-DD rows when the 252-bar window spans ≥365 calendar
+      // days (e.g. 2025-06-05 + 2026-06-05 both becoming "06-05" caused the
+      // newest-day tooltip to surface the oldest-day payload). Display is
+      // shortened to MM-DD via tickFormatter / labelFormatter below.
+      date: b.date,
       close: b.close,
       ema20: ema20[i],
       sma50: sma50[i],
@@ -176,6 +181,7 @@ export function PriceChart({ bars, currency = 'USD' }: Props) {
               stroke="#475569"
               tick={{ fontSize: 10 }}
               interval={Math.floor(data.rows.length / 6)}
+              tickFormatter={(v: string) => (typeof v === 'string' ? v.slice(5) : String(v))}
             />
             <YAxis
               stroke="#475569"
@@ -192,6 +198,7 @@ export function PriceChart({ bars, currency = 'USD' }: Props) {
                 fontSize: 11,
               }}
               labelStyle={{ color: '#cbd5e1' }}
+              labelFormatter={(v) => (typeof v === 'string' ? v.slice(5) : String(v ?? ''))}
               formatter={(v) =>
                 typeof v === 'number' ? formatPrice(v, currency) : String(v ?? '')
               }
@@ -341,6 +348,7 @@ export function PriceChart({ bars, currency = 'USD' }: Props) {
                   fontSize: 11,
                 }}
                 labelStyle={{ color: '#cbd5e1' }}
+                labelFormatter={(v) => (typeof v === 'string' ? v.slice(5) : String(v ?? ''))}
                 formatter={(v) =>
                   typeof v === 'number' ? formatPrice(v, currency) : String(v ?? '')
                 }

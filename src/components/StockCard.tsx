@@ -71,6 +71,18 @@ function formatRatio(v: number | null | undefined): string {
   return v.toFixed(1);
 }
 
+// Same convention as PriceChart's formatPrice / header price block, so the
+// indicator panel renders EMA20/SMA50/SMA200 the way the rest of the card
+// (and chart tooltip) does. KRW → rounded with separators, USD → 2 decimals.
+function formatNativePrice(
+  v: number | null | undefined,
+  currency: DisplayCurrency,
+): string {
+  if (v == null || !Number.isFinite(v)) return '—';
+  if (currency === 'KRW') return Math.round(v).toLocaleString('en-US');
+  return v.toFixed(2);
+}
+
 interface Props {
   result: AnalysisResult;
   isFavorite?: boolean;
@@ -529,9 +541,9 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
               <Metric label="30일" value={formatPct(ind.return30d)} />
               <Metric label="3개월" value={formatPct(ind.return90d)} />
               <Metric label="1년" value={formatPct(ind.return1y)} />
-              <Metric label="EMA20" value={ind.ema20?.toFixed(2) ?? '—'} />
-              <Metric label="SMA50" value={ind.sma50?.toFixed(2) ?? '—'} />
-              <Metric label="SMA200" value={ind.sma200?.toFixed(2) ?? '—'} />
+              <Metric label="EMA20" value={formatNativePrice(ind.ema20, nativeCurrency)} />
+              <Metric label="SMA50" value={formatNativePrice(ind.sma50, nativeCurrency)} />
+              <Metric label="SMA200" value={formatNativePrice(ind.sma200, nativeCurrency)} />
               <Metric label="OBV div" value={ind.obvDivergence === true ? '있음' : ind.obvDivergence === false ? '없음' : '—'} />
             </div>
           </div>
