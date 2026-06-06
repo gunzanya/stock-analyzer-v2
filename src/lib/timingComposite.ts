@@ -49,37 +49,51 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
+/** Linear interpolation from y0 at x0 to y1 at x1, evaluated at x.
+ *  Caller is responsible for ensuring x lies within [x0, x1] (no clamping). */
+function lerp(x: number, x0: number, y0: number, x1: number, y1: number): number {
+  if (x1 === x0) return y0;
+  return y0 + ((x - x0) / (x1 - x0)) * (y1 - y0);
+}
+
 // ---------- entryLocation (0–100) ----------
+// Smooth interpolation — no cliff edges. Optimal pullback (-2~+3%) holds 100,
+// then degrades linearly outward in both directions.
 function ema20PullbackScore(emaDist: number | null): number {
   if (emaDist == null) return 50;
   const pct = emaDist * 100;
-  if (pct >= 15) return 0;
-  if (pct >= 10) return 20;
-  if (pct >= 7) return 45;
-  if (pct >= 3) return 70;
-  if (pct >= -2) return 100;
-  if (pct >= -5) return 60;
-  return 20;
+  if (pct >= -2 && pct <= 3) return 100;
+  if (pct > 3 && pct <= 10) return lerp(pct, 3, 100, 10, 30);
+  if (pct > 10 && pct <= 15) return lerp(pct, 10, 30, 15, 0);
+  if (pct > 15) return 0;
+  if (pct < -2 && pct >= -5) return lerp(pct, -2, 100, -5, 50);
+  if (pct < -5 && pct >= -10) return lerp(pct, -5, 50, -10, 0);
+  return 0;
 }
 
+// Within 3% = full credit. 3~8% = linear 100→40. Beyond 8% or no nearby
+// cluster at all = 50 (neutral — "no signal" is not a penalty).
 function supportClusterScore(nearestSupportDistPct: number | null): number {
-  if (nearestSupportDistPct == null) return 40;
-  if (nearestSupportDistPct <= 1) return 100;
-  if (nearestSupportDistPct <= 3) return 80;
-  if (nearestSupportDistPct <= 5) return 50;
-  if (nearestSupportDistPct <= 8) return 25;
-  return 10;
+  if (nearestSupportDistPct == null) return 50;
+  if (nearestSupportDistPct <= 3) return 100;
+  if (nearestSupportDistPct <= 8) return lerp(nearestSupportDistPct, 3, 100, 8, 40);
+  return 50;
 }
 
+// Center at 55–60 (100), degrade smoothly outward. Beyond the spec'd
+// brackets we continue linearly so RSI 30/80 don't crater off a cliff.
 function rsiGoldilocksScore(rsi: number | null): number {
   if (rsi == null) return 50;
-  if (rsi >= 50 && rsi <= 65) return 100;
-  if (rsi >= 45 && rsi < 50) return 60;
-  if (rsi > 65 && rsi <= 70) return 60;
-  if (rsi >= 40 && rsi < 45) return 35;
-  if (rsi > 70 && rsi <= 75) return 30;
-  if (rsi > 75) return 10;
-  if (rsi >= 30) return 25;
+  if (rsi >= 55 && rsi <= 60) return 100;
+  if (rsi > 60 && rsi <= 65) return lerp(rsi, 60, 100, 65, 80);
+  if (rsi > 65 && rsi <= 70) return lerp(rsi, 65, 80, 70, 50);
+  if (rsi > 70 && rsi <= 75) return lerp(rsi, 70, 50, 75, 20);
+  if (rsi > 75 && rsi <= 80) return lerp(rsi, 75, 20, 80, 10);
+  if (rsi > 80) return 10;
+  if (rsi >= 50 && rsi < 55) return lerp(rsi, 50, 90, 55, 100);
+  if (rsi >= 45 && rsi < 50) return lerp(rsi, 45, 60, 50, 90);
+  if (rsi >= 40 && rsi < 45) return lerp(rsi, 40, 30, 45, 60);
+  if (rsi >= 30 && rsi < 40) return lerp(rsi, 30, 10, 40, 30);
   return 10;
 }
 
