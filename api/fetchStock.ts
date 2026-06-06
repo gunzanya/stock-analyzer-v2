@@ -806,7 +806,7 @@ async function fetchNaverPriceHistory(
 }
 
 /** Fetch daily OHLCV bars from Yahoo Finance. */
-async function fetchYahooPriceHistory(
+export async function fetchYahooPriceHistory(
   ticker: string,
   days = 400,
 ): Promise<PriceBar[]> {

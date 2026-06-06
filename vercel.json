@@ -26,6 +26,12 @@
         { "key": "Cache-Control", "value": "no-cache, no-transform" },
         { "key": "X-Accel-Buffering", "value": "no" }
       ]
+    },
+    {
+      "source": "/api/market-regime",
+      "headers": [
+        { "key": "Cache-Control", "value": "s-maxage=3600, stale-while-revalidate=7200" }
+      ]
     }
   ]
 }

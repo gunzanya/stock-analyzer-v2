@@ -6,6 +6,7 @@
 import { createServer } from 'node:http';
 import { analyzeOne } from '../api/analyze.ts';
 import { fetchFundamental } from '../api/fetchStock.ts';
+import { getMarketRegime } from '../api/market-regime.ts';
 import { runScreener } from '../api/screen.ts';
 import { fetchScreenerPool } from '../api/fetchStock.ts';
 import { SCREENER_POOL } from '../src/lib/screenerPool.ts';
@@ -72,6 +73,10 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname === '/api/fetchStock' && ticker) {
       const data = await fetchFundamental(ticker);
+      return json(200, data);
+    }
+    if (url.pathname === '/api/market-regime') {
+      const data = await getMarketRegime();
       return json(200, data);
     }
     if (url.pathname === '/api/screen') {
