@@ -120,10 +120,10 @@ export interface ClassificationResult {
   uncertain: boolean;              // true when even the best type < 30
 }
 
-// Timing score — displayed in UI as "타이밍". Captures short-term technical
-// setup: RS, volume, ADX, RSI, EMA20 proximity, candle pattern, Fib/MACD/BB.
+// Timing score — displayed in UI as "타이밍". Composite (0–100) of five
+// components; `gains` carries each weighted contribution for breakdown UI.
 export interface TimingScoreResult {
-  score: number;            // 0–90 (capped)
+  score: number;            // 0–100 (Composite)
   gains: { reason: string; delta: number }[];
   deductions: { reason: string; delta: number }[];
   level: 'STRONG' | 'WATCH' | 'NEUTRAL' | 'AVOID';
@@ -192,7 +192,7 @@ export interface FundamentalScoreResult {
 // Displayed in UI as "종합".
 
 export interface OverallScoreResult {
-  score: number;  // 0-100, = fundamental.score * 0.55 + (timing.score/90*100) * 0.45
+  score: number;  // 0-100, = fundamental.score * 0.55 + timing.score * 0.45
   level: 'STRONG' | 'WATCH' | 'NEUTRAL' | 'AVOID';
 }
 
@@ -276,6 +276,17 @@ export interface AnalysisResult {
     sma200: number | null;
   };
   timingDetail: TimingDetail | null;
+  /** New Composite breakdown — drives `timingScore` (its `composite` field is
+   *  what UI/screener consume). Exposed so the screener can gate on
+   *  `overheatControl` directly. */
+  timingComposite: {
+    composite: number;
+    entryLocation: number;
+    trendQuality: number;
+    volumeConfirmation: number;
+    overheatControl: number;
+    marketSupport: number;
+  } | null;
   priceBars: PriceBar[]; // for chart (last ~130 days)
   usdKrwRate: number | null; // USD/KRW spot, null on fetch failure
   supplyDemand: SupplyDemandData | null; // Korean stocks only

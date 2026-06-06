@@ -17,14 +17,19 @@ export interface ScreenerSummary {
   secondaryRatio?: number;
   display?: string;
   uncertain?: boolean;
-  // overall/fundamental are 0–100; timing is raw 0–90 (matches the card
-  // gauge and the breakout/entry/uptrend filter thresholds).
+  // overall/fundamental/timing are all 0–100. Timing is the Composite score
+  // (entryLocation*0.35 + trendQuality*0.25 + volumeConfirmation*0.15 +
+  // overheatControl*0.15 + marketSupport*0.10).
   overall?: number;
   overallLevel?: AnalysisResult['overallScore']['level'];
   fundamental?: number;
   fundamentalLevel?: AnalysisResult['fundamentalScore']['level'];
   timing?: number;
   timingLevel?: AnalysisResult['timingScore']['level'];
+  /** Composite's overheatControl component (0–100; higher = safer). Used by
+   *  the entry-ready screener gate to exclude high-overheat names regardless
+   *  of how high their Composite score is. */
+  overheatControl?: number | null;
   safetyTriggered?: boolean;
   /** True when the ticker matches the "돌파 대기" pattern: solid fundamentals,
    *  timing in the pre-진입적기 band, ADX in trend-forming range, RS leading

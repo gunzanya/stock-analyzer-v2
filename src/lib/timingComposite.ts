@@ -10,7 +10,7 @@
 //           + marketSupport*0.10
 // Each component is normalized to 0–100.
 
-import type { PriceBar, StockType } from './types.js';
+import type { PriceBar, StockType, TimingScoreResult } from './types.js';
 import {
   adx as adxOf,
   atrTrend as atrTrendOf,
@@ -334,5 +334,37 @@ export function computeTimingComposite(
     volumeConfirmation: Math.round(volumeConfirmation * 10) / 10,
     overheatControl: Math.round(overheatControl * 10) / 10,
     marketSupport: Math.round(marketSupport * 10) / 10,
+  };
+}
+
+/** Map Composite score → level. Aligned with `entryGrade` thresholds so the
+ *  level under the gauge never contradicts the entry-grade label below it. */
+export function compositeLevel(score: number): TimingScoreResult['level'] {
+  if (score >= 75) return 'STRONG';
+  if (score >= 60) return 'WATCH';
+  if (score >= 45) return 'NEUTRAL';
+  return 'AVOID';
+}
+
+/** Project the 5-component breakdown into TimingScoreResult shape so the
+ *  rest of the pipeline (UI gauge, overall blend, coherence floor) reuses
+ *  the legacy interface unchanged. Each component becomes a pseudo-gain
+ *  whose delta is its weighted contribution — the sum equals `score`. */
+export function buildCompositeTimingResult(
+  b: TimingCompositeBreakdown,
+): TimingScoreResult {
+  const round = (v: number) => Math.round(v * 10) / 10;
+  const gains: TimingScoreResult['gains'] = [
+    { reason: `진입 위치 ${b.entryLocation} × 0.35`, delta: round(b.entryLocation * 0.35) },
+    { reason: `추세 품질 ${b.trendQuality} × 0.25`, delta: round(b.trendQuality * 0.25) },
+    { reason: `거래량 확인 ${b.volumeConfirmation} × 0.15`, delta: round(b.volumeConfirmation * 0.15) },
+    { reason: `과열 제어 ${b.overheatControl} × 0.15 (높을수록 안전)`, delta: round(b.overheatControl * 0.15) },
+    { reason: `시장 지지 ${b.marketSupport} × 0.10`, delta: round(b.marketSupport * 0.10) },
+  ];
+  return {
+    score: b.composite,
+    gains,
+    deductions: [],
+    level: compositeLevel(b.composite),
   };
 }

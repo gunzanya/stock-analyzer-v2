@@ -19,8 +19,8 @@ interface Props {
   chaseWarning?: boolean;
 }
 
-// SVG circular gauge. `max` defaults to 100 — timing passes 90 so the raw
-// 0-90 score is shown directly (matches the breakdown sum, no hidden rescale).
+// SVG circular gauge. `max` defaults to 100 — timing (Composite) and
+// fundamental both natively share that scale.
 function Gauge({
   score,
   size,
@@ -91,9 +91,8 @@ export function TotalScoreCard({
   timing,
   chaseWarning = false,
 }: Props) {
-  // Timing is natively 0–90; we display the raw score so the gauge number
-  // matches the breakdown sum below. entryGrade thresholds (70/55/40) apply
-  // to that same raw scale and stay aligned with timing.level.
+  // Timing is the Composite (0–100). entryGrade thresholds (75/60/45)
+  // align with compositeLevel so the label never contradicts the gauge.
   const entry = entryGrade(timing.score, chaseWarning);
   const stockLevelText = LEVEL_KO[fundamental.level];
   return (
@@ -122,7 +121,6 @@ export function TotalScoreCard({
           <div className="text-slate-700 text-2xl">+</div>
           <Gauge
             score={timing.score}
-            max={90}
             level={timing.level}
             label="타이밍"
             size={88}
@@ -151,7 +149,7 @@ export function TotalScoreCard({
           <span>
             <span className={`font-semibold ${entry.textClass}`}>{entry.label}</span>
             <span className="text-slate-500 ml-2 text-xs">
-              (타이밍 {timing.score} / 90)
+              (타이밍 {timing.score} / 100)
             </span>
           </span>
         </p>

@@ -38,10 +38,12 @@ export const LEVEL_KO: Record<'STRONG' | 'WATCH' | 'NEUTRAL' | 'AVOID', string> 
   AVOID: '회피',
 };
 
-// Entry grade — derived from the raw timing score (0-90 scale, same units
-// the gauge and breakdown sum use). Thresholds align with timing.level so
-// the entry label never contradicts the level shown under the gauge.
-// chaseWarning overrides to "추격주의" regardless of how high timing scores.
+// Entry grade — derived from the Composite timing score (0–100 scale, same
+// units the gauge and breakdown sum use). Thresholds align with the
+// compositeLevel mapping (75/60/45) so the entry label never contradicts
+// the level shown under the gauge. chaseWarning overrides to "추격주의"
+// regardless of how high timing scores (fires when overheatControl < 30
+// or when the legacy pathA/pathB chase heuristics hit).
 export type EntryGradeLevel = 'ready' | 'wait' | 'avoid' | 'danger' | 'chase';
 
 export function entryGrade(
@@ -51,13 +53,13 @@ export function entryGrade(
   if (chaseWarning) {
     return { label: '추격주의', level: 'chase', textClass: 'text-orange-400' };
   }
-  if (timingScore >= 70) {
+  if (timingScore >= 75) {
     return { label: '진입 적기', level: 'ready', textClass: 'text-emerald-400' };
   }
-  if (timingScore >= 55) {
+  if (timingScore >= 60) {
     return { label: '관심/대기', level: 'wait', textClass: 'text-amber-400' };
   }
-  if (timingScore >= 40) {
+  if (timingScore >= 45) {
     return { label: '회피', level: 'avoid', textClass: 'text-slate-400' };
   }
   return { label: '위험', level: 'danger', textClass: 'text-red-400' };

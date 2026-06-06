@@ -1,8 +1,6 @@
 // Overall score — weighted blend of Fundamental (CANSLIM-based) and Timing
-// (technical setup). UI label: "종합".
-//
-// Timing is natively 0–90; we rescale to 0–100 before blending so the two
-// inputs sit on the same axis. Weights skew slightly toward fundamentals
+// (Composite, 0–100). UI label: "종합". Both inputs share the 0–100 axis,
+// so no rescale is needed. Weights skew slightly toward fundamentals
 // (0.55) over timing (0.45) — what to own matters more than when, but the
 // latter is meaningful enough to deserve near-equal weight.
 
@@ -28,11 +26,9 @@ export function computeOverall(
   timing: TimingScoreResult,
   primaryType?: StockType | null,
 ): OverallScoreResult {
-  // Timing is 0–90; rescale to 0–100 to match Fundamental's range.
-  const timingPct = (timing.score / 90) * 100;
   const blended =
     fundamental.score * OVERALL_FUNDAMENTAL_WEIGHT +
-    timingPct * OVERALL_TIMING_WEIGHT;
+    timing.score * OVERALL_TIMING_WEIGHT;
   let score = Math.max(0, Math.min(100, Math.round(blended)));
   if (primaryType === 'SPECULATIVE') score = Math.min(score, 65);
   return { score, level: levelOf(score) };

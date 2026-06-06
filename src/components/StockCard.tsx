@@ -440,7 +440,7 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
           strategyType={effectiveType}
           scores={{
             fundamental: fundamentalScore.score,
-            timing: Math.round((result.timingScore.score / 90) * 100),
+            timing: Math.round(result.timingScore.score),
             overall: overallScore.score,
           }}
           fxRate={fxRate}

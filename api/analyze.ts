@@ -21,7 +21,10 @@ import {
 } from '../src/lib/indicators.js';
 import { evaluateSafetyGuard } from '../src/lib/safetyGuard.js';
 import { applyCoherenceFloor, computeTiming } from '../src/lib/entryScore.js';
-import { computeTimingComposite } from '../src/lib/timingComposite.js';
+import {
+  buildCompositeTimingResult,
+  computeTimingComposite,
+} from '../src/lib/timingComposite.js';
 import { computeCanslim } from '../src/lib/canslim.js';
 import { computeFundamental } from '../src/lib/totalScore.js';
 import { computeOverall } from '../src/lib/overallScore.js';
@@ -122,9 +125,12 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     deductions: [{ reason: '가격 데이터 없음', delta: 0 }],
     level: 'NEUTRAL' as const,
   };
-  const timingScore = hasPrices
+  // Legacy timing — computed for monitoring only (logged after we have
+  // fundamentalScore). UI/screener/entry-grade all consume the Composite-
+  // based `adjustedTiming` further down.
+  const legacyTimingScore = hasPrices
     ? safe(
-        'timingScore',
+        'legacyTimingScore',
         () => computeTiming({
           stockBars,
           benchmarkBars: benchBars,
@@ -218,11 +224,43 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     }
   }
 
+  // Composite is now the production timing score. Compute it here (needs
+  // fundamentalScore.peakEarningsPenalty), wrap into TimingScoreResult shape,
+  // and apply the coherence floor against fundamentals as before.
+  const compositeBreakdown = hasPrices
+    ? safe(
+        'timingComposite',
+        () =>
+          computeTimingComposite({
+            stockBars,
+            benchmarkBars: benchBars,
+            absoluteMode: isKoreanTicker,
+            primaryType: classification.primary,
+            peakEarningsPenalty: fundamentalScore.peakEarningsPenalty != null,
+          }),
+        null,
+      )
+    : null;
+  const compositeTiming = compositeBreakdown
+    ? buildCompositeTimingResult(compositeBreakdown)
+    : timingFallback;
   const adjustedTiming = safe(
     'adjustedTiming',
-    () => applyCoherenceFloor(timingScore, fundamentalScore.score),
-    timingScore,
+    () => applyCoherenceFloor(compositeTiming, fundamentalScore.score),
+    compositeTiming,
   );
+  // Monitoring: log legacy vs Composite for the duration of the rollout. UI
+  // never sees `legacyTimingScore` — only `adjustedTiming`.
+  if (hasPrices && compositeBreakdown) {
+    const diff = adjustedTiming.score - legacyTimingScore.score;
+    const sign = diff >= 0 ? '+' : '';
+    console.log(
+      `[timing ${fund.ticker}] composite=${adjustedTiming.score} legacy=${legacyTimingScore.score} ` +
+        `(Δ${sign}${diff.toFixed(1)}) | entryLoc=${compositeBreakdown.entryLocation} ` +
+        `trendQ=${compositeBreakdown.trendQuality} vol=${compositeBreakdown.volumeConfirmation} ` +
+        `overheat=${compositeBreakdown.overheatControl} market=${compositeBreakdown.marketSupport}`,
+    );
+  }
   const overallScore = safe(
     'overallScore',
     () => computeOverall(fundamentalScore, adjustedTiming, classification.primary),
@@ -287,6 +325,24 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     riskFactors.unshift({
       severity: 'high',
       message: `🚨 사이클 상단 추격 위험 — ${tag}30일 +${r30}% + EMA20 대비 +${stretch}%`,
+    });
+  }
+
+  // Composite-driven chase override: overheatControl < 30 ⇒ 추격주의
+  // regardless of how high the Composite score is, so SK Hynix-style
+  // overextended setups never grade as 진입적기. Only push when no chase
+  // warning was already added above.
+  const alreadyChase = riskFactors.some((rk) =>
+    rk.message.startsWith('🚨 사이클 상단'),
+  );
+  if (
+    !alreadyChase &&
+    compositeBreakdown &&
+    compositeBreakdown.overheatControl < 30
+  ) {
+    riskFactors.unshift({
+      severity: 'high',
+      message: `🚨 사이클 상단 추격 위험 — 과열 제어 ${compositeBreakdown.overheatControl} (< 30)`,
     });
   }
 
@@ -359,36 +415,6 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     };
   }
 
-  // Stage-1 parallel: compute the new Trend Composite alongside legacy
-  // timing for log-only comparison. Result is NOT returned to the UI and
-  // NOT used by the screener/entry-grade — those still consume
-  // `adjustedTiming.score`. Wrapped in `safe` so a failure here never
-  // breaks an analysis.
-  safe(
-    'timingComposite',
-    () => {
-      if (!hasPrices) return null;
-      const comp = computeTimingComposite({
-        stockBars,
-        benchmarkBars: benchBars,
-        absoluteMode: isKoreanTicker,
-        primaryType: classification.primary,
-        peakEarningsPenalty: fundamentalScore.peakEarningsPenalty != null,
-      });
-      const legacy = adjustedTiming.score;
-      const diff = comp.composite - legacy;
-      const sign = diff >= 0 ? '+' : '';
-      console.log(
-        `[timingComposite ${fund.ticker}] legacy=${legacy} new=${comp.composite} ` +
-          `(Δ${sign}${diff.toFixed(1)}) | entryLoc=${comp.entryLocation} ` +
-          `trendQ=${comp.trendQuality} vol=${comp.volumeConfirmation} ` +
-          `overheat=${comp.overheatControl} market=${comp.marketSupport}`,
-      );
-      return comp;
-    },
-    null,
-  );
-
   // Keep ~252 days of bars for the chart (12 months trading days)
   // — required so that SMA200 has enough lookback to render the line.
   const priceBars = stockBars.slice(0, 252);
@@ -406,6 +432,7 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
     safetyGuard,
     indicators,
     timingDetail,
+    timingComposite: compositeBreakdown,
     priceBars,
     usdKrwRate,
     supplyDemand,

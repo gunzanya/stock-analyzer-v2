@@ -624,10 +624,11 @@ export function computeTiming(inputs: TimingScoreInputs): TimingScoreResult {
 /** Post-processing coherence floor: a fundamentally OK stock shouldn't
  *  show an extreme Entry of 0–10. Tiered floors prevent the case where
  *  MSFT (Fund 62, Timing 0) or PEP (Fund 47, Timing 17) collapse to near-zero
- *  just because the setup is poor.
- *    Fund ≥ 75 → Timing ≥ 25 (level NEUTRAL — company is solid)
- *    Fund ≥ 60 → Timing ≥ 20 (level stays AVOID — fundamentals OK, setup bad)
- *    Fund ≥ 50 → Timing ≥ 15 (level stays AVOID) */
+ *  just because the setup is poor. Now applied against the Composite
+ *  timing (0–100).
+ *    Fund ≥ 75 → Timing ≥ 30 (level NEUTRAL — company is solid)
+ *    Fund ≥ 60 → Timing ≥ 22 (level stays AVOID — fundamentals OK, setup bad)
+ *    Fund ≥ 50 → Timing ≥ 17 (level stays AVOID) */
 export function applyCoherenceFloor(
   timing: TimingScoreResult,
   fundamentalScoreValue: number,
@@ -635,13 +636,13 @@ export function applyCoherenceFloor(
   let floor = 0;
   let flooredLevel: TimingScoreResult['level'] | null = null;
   if (fundamentalScoreValue >= 75) {
-    floor = 25;
+    floor = 30;
     flooredLevel = 'NEUTRAL';
   } else if (fundamentalScoreValue >= 60) {
-    floor = 20;
+    floor = 22;
     flooredLevel = 'AVOID';
   } else if (fundamentalScoreValue >= 50) {
-    floor = 15;
+    floor = 17;
     flooredLevel = 'AVOID';
   }
 
