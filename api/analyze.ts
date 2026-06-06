@@ -21,6 +21,7 @@ import {
 } from '../src/lib/indicators.js';
 import { evaluateSafetyGuard } from '../src/lib/safetyGuard.js';
 import { applyCoherenceFloor, computeTiming } from '../src/lib/entryScore.js';
+import { computeTimingComposite } from '../src/lib/timingComposite.js';
 import { computeCanslim } from '../src/lib/canslim.js';
 import { computeFundamental } from '../src/lib/totalScore.js';
 import { computeOverall } from '../src/lib/overallScore.js';
@@ -357,6 +358,36 @@ async function analyzeOne(ticker: string): Promise<AnalysisResult> {
       supportResistance: { clusters, description: srDesc },
     };
   }
+
+  // Stage-1 parallel: compute the new Trend Composite alongside legacy
+  // timing for log-only comparison. Result is NOT returned to the UI and
+  // NOT used by the screener/entry-grade — those still consume
+  // `adjustedTiming.score`. Wrapped in `safe` so a failure here never
+  // breaks an analysis.
+  safe(
+    'timingComposite',
+    () => {
+      if (!hasPrices) return null;
+      const comp = computeTimingComposite({
+        stockBars,
+        benchmarkBars: benchBars,
+        absoluteMode: isKoreanTicker,
+        primaryType: classification.primary,
+        peakEarningsPenalty: fundamentalScore.peakEarningsPenalty != null,
+      });
+      const legacy = adjustedTiming.score;
+      const diff = comp.composite - legacy;
+      const sign = diff >= 0 ? '+' : '';
+      console.log(
+        `[timingComposite ${fund.ticker}] legacy=${legacy} new=${comp.composite} ` +
+          `(Δ${sign}${diff.toFixed(1)}) | entryLoc=${comp.entryLocation} ` +
+          `trendQ=${comp.trendQuality} vol=${comp.volumeConfirmation} ` +
+          `overheat=${comp.overheatControl} market=${comp.marketSupport}`,
+      );
+      return comp;
+    },
+    null,
+  );
 
   // Keep ~252 days of bars for the chart (12 months trading days)
   // — required so that SMA200 has enough lookback to render the line.
