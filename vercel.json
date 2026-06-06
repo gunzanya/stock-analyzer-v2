@@ -32,6 +32,12 @@
       "headers": [
         { "key": "Cache-Control", "value": "s-maxage=3600, stale-while-revalidate=7200" }
       ]
+    },
+    {
+      "source": "/api/sector-regime",
+      "headers": [
+        { "key": "Cache-Control", "value": "s-maxage=3600, stale-while-revalidate=7200" }
+      ]
     }
   ]
 }

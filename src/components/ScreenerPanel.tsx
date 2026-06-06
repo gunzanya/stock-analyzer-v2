@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import type { ScreenerSummary } from '../lib/screenerTypes.js';
 import { LEVEL_KO, SCORE_TEXT, scoreLevel } from './scoreColors.js';
 import { MarketRegimeBanner } from './MarketRegimeBanner.js';
+import { SectorRegimePanel } from './SectorRegimePanel.js';
 
 type Row = ScreenerSummary;
 type Status = 'idle' | 'running' | 'done' | 'error';
@@ -181,6 +182,7 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
   return (
     <div className="space-y-4">
       <MarketRegimeBanner />
+      <SectorRegimePanel />
       <div className="rounded-2xl border border-[#1e293b] bg-[#0f172a] p-4 sm:p-5">
         <div className="flex flex-wrap items-center gap-3 justify-between mb-3">
           <div>

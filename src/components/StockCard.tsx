@@ -21,6 +21,7 @@ import { TimingDetailCard } from './TimingDetailCard.js';
 import { AddToPortfolioModal } from './AddToPortfolioModal.js';
 import { SupplyDemandCard } from './SupplyDemandCard.js';
 import { NewsCard } from './NewsCard.js';
+import { SectorBadge } from './SectorBadge.js';
 import { saveScoreEntry, loadScoreHistory, type ScoreEntry } from '../lib/scoreHistory.js';
 
 const STOCK_TYPE_ORDER: StockType[] = [
@@ -375,6 +376,11 @@ export function StockCard({ result, isFavorite = false, onToggleFavorite }: Prop
           <SafetyBanner safety={result.safetyGuard} />
         </div>
       )}
+
+      {/* Sector status badge (US stocks mapped to a tracked sector/theme ETF) */}
+      <div className="px-5 pt-4 empty:hidden">
+        <SectorBadge fund={f} />
+      </div>
 
       {/* Score row */}
       <div className="px-5 pt-4">

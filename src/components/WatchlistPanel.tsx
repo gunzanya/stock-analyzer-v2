@@ -4,6 +4,7 @@ import { SCORE_TEXT, scoreLevel } from './scoreColors.js';
 import { loadScoreHistory, saveScoreEntry, type ScoreEntry } from '../lib/scoreHistory.js';
 import { STOCK_TYPE_LABELS, type StockType } from '../lib/types.js';
 import { MarketRegimeBanner } from './MarketRegimeBanner.js';
+import { SectorRegimePanel } from './SectorRegimePanel.js';
 
 type Status = 'idle' | 'running' | 'done' | 'error';
 type SortKey = 'overall' | 'fundamental' | 'timing' | 'ema20Pct' | 'changePct' | 'status';
@@ -186,6 +187,7 @@ export function WatchlistPanel({ favorites, onToggleFavorite, onPickTicker }: Pr
   return (
     <div className="space-y-4">
       <MarketRegimeBanner />
+      <SectorRegimePanel />
       <div className="rounded-2xl border border-[#1e293b] bg-[#0f172a] p-4 sm:p-5">
         <div className="flex flex-wrap items-center gap-3 justify-between">
           <div>
