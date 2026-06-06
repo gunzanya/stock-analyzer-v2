@@ -164,9 +164,18 @@ export function ScreenerPanel({ favorites, onToggleFavorite, onPickTicker }: Pro
   });
 
   const pct = progress.total > 0 ? (progress.completed / progress.total) * 100 : 0;
-  const strongCount = rows.filter(
-    (r) => r.ok && (r.overall ?? 0) >= 70 && (r.timing ?? 0) >= 45,
-  ).length;
+  // Count rows that would survive if `strongOnly` were toggled on, given the
+  // other currently-active filters. Otherwise the label reads "(4)" while the
+  // list shows 0 when a pool filter (돌파대기/진입적기/상승추세) or
+  // hideSafetyTriggered eliminates the strong rows.
+  const strongCount = rows.filter((r) => {
+    if (!r.ok) return false;
+    if (isBreakoutFilter && !r.breakoutReady) return false;
+    if (isEntryFilter && !r.entryReady) return false;
+    if (isUptrendFilter && !r.uptrendConfirmed) return false;
+    if (hideSafetyTriggered && r.safetyTriggered) return false;
+    return (r.overall ?? 0) >= 70 && (r.timing ?? 0) >= 45;
+  }).length;
 
   return (
     <div className="space-y-4">
